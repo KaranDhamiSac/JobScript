@@ -1,0 +1,70 @@
+<!doctype html><html><head><meta charset="utf-8">
+<!-- Mock application form for testing JobScript without the extension. See README "Testing". -->
+<link rel="stylesheet" href="../content/autofill.css">
+<script>
+const store = { profile: {
+  firstName:'Testy', lastName:'McTestface', email:'testy@example.com', phone:'916-555-0100', city:'Sacramento', state:'CA', zip:'95819',
+  linkedin:'https://linkedin.com/in/testy-example', github:'https://github.com/testy-example', workAuthorized:'yes', willingToRelocate:'yes', requiresSponsorship:'no',
+  gender:'Decline to answer', race:'Asian', veteran:'I am not a protected veteran', disability:'Decline to answer',
+  workHistory:[{employer:'Acme',title:'Intern',startDate:'2024-06',current:true},{employer:'Beta',title:'Tutor',startDate:'2023-01',endDate:'2024-05'}],
+  education:[{school:'Sac State',degree:'BS',major:'Computer Science',startDate:'2022-08',gradDate:'2026-05'}],
+  customAnswers:[{question:'How did you hear about us?', answer:'LinkedIn'}] },
+  resume: { name:'resume.pdf', type:'application/pdf', size:4, data: btoa('%PDF'), savedAt: new Date().toISOString() } };
+window.chrome = { storage: { local: { get: async k => ({[k]: store[k]}), set: async o => Object.assign(store,o), remove: async k => delete store[k] } } };
+</script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/fieldMap.js"></script>
+<script src="../content/autofill.js"></script>
+</head><body>
+<form id="application-form">
+<h2>Personal</h2>
+<label for="first_name">First Name *</label><input id="first_name" required>
+<label for="last_name">Last Name *</label><input id="last_name" required>
+<label for="email">Email *</label><input id="email" type="email" required>
+<label for="phone">Phone</label><input id="phone" value="555-already">
+<label for="loc">Location (City)</label><input id="loc">
+<label>Resume/CV * <input type="file" id="resume" required></label>
+<label for="li">LinkedIn Profile</label><input id="li">
+<label for="gh">GitHub</label><input id="gh">
+<label for="q1">Are you legally authorized to work in the United States? *</label>
+<select id="q1" required><option value="">Select...</option><option value="1">Yes</option><option value="0">No</option></select>
+<div><div>Will you now or in the future require visa sponsorship? *</div>
+<ul><li><label><input type="radio" name="spons" value="y">Yes</label></li><li><label><input type="radio" name="spons" value="n">No</label></li></ul></div>
+<label for="q2">How did you hear about us?</label><input id="q2">
+<label for="q3">Why do you want to work here? *</label><textarea id="q3" required></textarea>
+<h3>Education</h3>
+<div id="edu">
+<label for="school--0">School</label><input id="school--0">
+<label for="degree--0">Degree</label><select id="degree--0"><option value="">Select</option><option>High School</option><option>Associate's Degree</option><option>Bachelor of Arts</option><option>Bachelor of Science</option><option>Master of Science</option></select>
+<label for="discipline--0">Discipline</label><input id="discipline--0">
+<label for="end-month--0">End date month</label><select id="end-month--0"><option value="">Month</option><option>January</option><option>February</option><option>March</option><option>April</option><option>May</option></select>
+<label for="end-year--0">End date year</label><input id="end-year--0">
+</div>
+<h3>Employment</h3>
+<div id="emp"></div>
+<button type="button" id="addjob">Add another</button>
+<h3>Voluntary Self-Identification</h3>
+<label for="gender">Gender</label><select id="gender"><option value="">Select</option><option>Male</option><option>Female</option><option>I don't wish to answer</option></select>
+<label for="race">Race</label><select id="race"><option value="">Select</option><option>White</option><option>Asian</option><option>Decline To Self Identify</option></select>
+<label for="vet">Veteran Status</label><select id="vet"><option value="">Select</option><option>I am a protected veteran</option><option>I am not a protected veteran</option><option>I don't wish to answer</option></select>
+<button type="submit">Submit Application</button>
+</form>
+<script>
+let n = 0;
+function addJob(){ const i=n++; document.getElementById('emp').insertAdjacentHTML('beforeend',
+ '<div><label for="company-name-'+i+'">Company name</label><input id="company-name-'+i+'"><label for="title-'+i+'">Title</label><input id="title-'+i+'">'+
+ '<label for="start-date-month-'+i+'">Start date month</label><input id="start-date-month-'+i+'"><label for="start-date-year-'+i+'">Start date year</label><input id="start-date-year-'+i+'">'+
+ '<label><input type="checkbox" id="current-role-'+i+'">Current role</label></div>'); }
+addJob();
+document.getElementById('addjob').onclick = addJob;
+
+let once=false;
+document.getElementById('q1').addEventListener('change', () => setTimeout(() => {
+  document.getElementById('q1').insertAdjacentHTML('afterend','<div id="cond"><label for="reloc">Are you willing to relocate? *</label><select id="reloc" required><option value="">Select...</option><option>Yes</option><option>No</option></select></div>');
+}, 600));
+document.addEventListener('change', () => { if (once) return; once = true; setTimeout(() => {
+  document.getElementById('application-form').insertAdjacentHTML('beforeend','<div id="lateblock"><label for="zip">Zip code</label><input id="zip"><label for="late_req">Pronouns *</label><input id="late_req" required></div>');
+}, 3000); });
+document.querySelector('form').onsubmit = e => { e.preventDefault(); window.SUBMITTED = true; };
+</script>
+</body></html>
