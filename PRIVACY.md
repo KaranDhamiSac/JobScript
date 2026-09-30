@@ -14,7 +14,7 @@ JobScript stores the details you enter on its options page:
 - your resume PDF, and its plain text (extracted on your device when you upload it)
 - if you use the Claude features: your Anthropic API key and your chosen model
 - your application tracker (company, job title, page address, date and status of each application you fill)
-- tailored resumes you approve, saved with their application (the most recent 60)
+- resumes you upload for a specific job, or tailored resumes you approve, saved with their application (the most recent 60)
 
 ## Where it is stored
 
@@ -23,6 +23,10 @@ Everything is stored locally, in your browser's extension storage (`chrome.stora
 This storage is not encrypted. Anyone with access to your browser profile could read it, including your API key if you saved one.
 
 Reading text out of your resume PDF always happens on your device, using a copy of pdf.js bundled inside the extension. **Import on this device** also turns that text into a draft profile on your device.
+
+## Files saved to your computer
+
+If you choose to, the **Job description** page saves the job description and the resume you used into `Downloads/JobScript/<Company>/<Job title>/` on your computer. This uses the browser's "downloads" permission, which JobScript asks for the first time you save and which you can revoke in your browser's extension settings. The files stay on your computer.
 
 ## What JobScript sends, and to whom
 

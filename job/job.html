@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Description</title>
+  <link rel="stylesheet" href="../tailor/tailor.css">
+  <link rel="stylesheet" href="job.css">
+</head>
+<body>
+  <main>
+    <header class="page-head">
+      <h1 id="job-title">Job description</h1>
+      <p class="muted"><span id="job-company"></span> <a id="job-link" target="_blank" rel="noopener"></a></p>
+    </header>
+
+    <section>
+      <div class="section-head">
+        <h2>Job description</h2>
+        <button id="copy" type="button" class="primary">Copy job description</button>
+      </div>
+      <p class="muted small">Copied with the job title, company and link at the top, ready to paste wherever you tailor your resume.</p>
+      <textarea id="description" rows="18" readonly></textarea>
+      <p id="copy-status" class="muted small" role="status"></p>
+    </section>
+
+    <section>
+      <h2>Your resume for this job</h2>
+      <p class="muted small">Upload the resume you tailored for this job. JobScript attaches it instead of your master resume, fills the rest of the application from your profile, and logs it in your Applications list. It never submits.</p>
+      <div class="row">
+        <label class="button-like secondary" for="resume-input" id="resume-choose">Choose PDF…</label>
+        <input id="resume-input" type="file" accept="application/pdf,.pdf" hidden>
+        <span id="resume-name" class="muted">No file chosen</span>
+      </div>
+      <label class="check folder-choice"><input id="save-folder" type="checkbox" checked> Also save the job description and this resume to <code id="folder-path"></code> in your Downloads folder</label>
+      <div class="row">
+        <button id="fill" type="button" class="primary" disabled>Attach &amp; fill application</button>
+        <button id="save-description" type="button" class="secondary">Save job description to folder only</button>
+      </div>
+      <p id="status" role="status"></p>
+    </section>
+  </main>
+
+  <script src="../lib/storage.js"></script>
+  <script src="job.js"></script>
+</body>
+</html>

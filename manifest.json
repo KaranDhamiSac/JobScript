@@ -8,6 +8,9 @@
     "scripting",
     "activeTab"
   ],
+  "optional_permissions": [
+    "downloads"
+  ],
   "host_permissions": [
     "https://boards.greenhouse.io/*",
     "https://job-boards.greenhouse.io/*",

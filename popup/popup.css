@@ -114,3 +114,5 @@ button.secondary.wide:disabled { opacity: 0.6; cursor: default; }
 .app select { align-self: start; font: inherit; font-size: 12px; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); }
 .app-meta { grid-column: 1 / -1; display: flex; gap: 10px; font-size: 11px; align-items: center; }
 .app-meta .link { font-size: 11px; }
+
+.tailor-link { display: block; margin: 6px auto 0; font-size: 12px; }

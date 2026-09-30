@@ -1131,7 +1131,7 @@
       .filter((f) => f.el.isConnected)
       .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
     const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft);
-    const actions = [{ label: 'Tailor & Fill', onClick: () => chrome.runtime.sendMessage({ type: 'tailor-start' }) }];
+    const actions = [{ label: 'Job description', onClick: () => chrome.runtime.sendMessage({ type: 'job-start' }) }];
     if (hasSuggestions) actions.push({ label: 'Accept all', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
       note: session.note,
@@ -1467,9 +1467,14 @@
   function descriptionFrom(doc) {
     const site = currentSite();
     for (const sel of (site && site.jobDescriptionSelectors) || []) {
-      const node = doc.querySelector(sel);
-      const text = node && (node.innerText || node.textContent);
-      if (text && clean(text).length > 200) return text;
+      // The longest matching block, so a header that shares the class doesn't win.
+      let best = '';
+      for (const node of doc.querySelectorAll(sel)) {
+        if (node.querySelector('input, select, textarea')) continue; // the application form, not the posting
+        const text = node.innerText || node.textContent || '';
+        if (clean(text).length > clean(best).length) best = text;
+      }
+      if (clean(best).length > 200) return best;
     }
     return '';
   }
@@ -1503,16 +1508,18 @@
   // page (same site) and read it from there.
   async function jobPosting() {
     const { title, company } = titleAndCompany();
-    let description = descriptionFrom(document);
-    if (!description && /\/apply\/?$/.test(location.pathname)) {
+    let description = '';
+    // On an /apply page the posting is on the page without /apply; read it from there first.
+    if (/\/apply\/?$/.test(location.pathname)) {
       try {
         const res = await fetch(location.href.replace(/\/apply\/?(\?.*)?$/, ''), { credentials: 'same-origin' });
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         description = descriptionFrom(doc);
       } catch (e) {
-        /* fall back to the page text */
+        /* fall back to this page */
       }
     }
+    if (!description) description = descriptionFrom(document);
     if (!description) description = document.body.innerText;
     const site = currentSite();
     return {

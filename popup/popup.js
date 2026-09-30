@@ -63,6 +63,25 @@ fillBtn.addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Job description & my resume: opens the job page in a new tab (see job/job.js).
+
+document.getElementById('job').addEventListener('click', async () => {
+  const btn = document.getElementById('job');
+  btn.disabled = true;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !Number.isInteger(tab.id)) throw new Error('No active tab.');
+    const res = await chrome.runtime.sendMessage({ type: 'job-tab', tabId: tab.id });
+    if (res && res.ok) window.close();
+    else showResult('err', 'No job posting found', (res && res.error) || 'Something went wrong.');
+  } catch (err) {
+    showResult('err', 'No job posting found', String(err.message || err));
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Tailor & Fill: opens the review page in a new tab (see tailor/tailor.js).
 
 document.getElementById('tailor').addEventListener('click', async () => {

@@ -77,6 +77,7 @@ async function fillTab(tabId, opts) {
     site: summary.site,
     tailoredId: tailored ? opts.tailoredId : '',
     tailoredFileName: tailored ? tailored.name : '',
+    folder: opts && opts.folder,
   });
 
   // Tab-scoped badge; the browser clears it when the tab navigates.
@@ -151,7 +152,9 @@ async function parseResumeWithAi(msg) {
 // Tailor & Fill: scrape the posting, then open the review page in a new tab. The review page
 // asks Claude for a tailored version, you approve it, and it comes back here to fill the tab.
 
-async function startTailor(tabId) {
+// page: 'tailor' (Claude tailoring) or 'job' (job description + your own resume).
+async function startTailor(tabId, page) {
+  const target = page === 'job' ? 'job/job.html' : 'tailor/tailor.html';
   let postings;
   try {
     postings = await callWithInjection(tabId, '__jobscriptJobPosting');
@@ -164,7 +167,7 @@ async function startTailor(tabId) {
   const sid = crypto.randomUUID();
   await chrome.storage.session.set({ ['tailor:' + sid]: { tabId, posting, createdAt: Date.now() } });
   const tab = await chrome.tabs.get(tabId);
-  await chrome.tabs.create({ url: chrome.runtime.getURL('tailor/tailor.html?sid=' + sid), index: tab.index + 1, openerTabId: tabId });
+  await chrome.tabs.create({ url: chrome.runtime.getURL(target + '?sid=' + sid), index: tab.index + 1, openerTabId: tabId });
   return { ok: true };
 }
 
@@ -198,7 +201,7 @@ async function fillWithTailored(msg) {
     return { ok: false, error: 'The job tab was closed.' };
   }
   await chrome.tabs.update(tab.id, { active: true });
-  return fillTab(tab.id, { tailoredId: msg.tailoredId });
+  return fillTab(tab.id, { tailoredId: msg.tailoredId, folder: typeof msg.folder === 'string' ? msg.folder : '' });
 }
 
 // Messages from our own content scripts carry sender.tab; page scripts can't send these at all.
@@ -219,14 +222,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     fillTab(msg.tabId).then(sendResponse);
     return true; // keep the channel open for the async response
   }
-  if (msg.type === 'tailor-tab') {
+  if (msg.type === 'tailor-tab' || msg.type === 'job-tab') {
     if (!isTrustedSender(sender, 'popup/') || !Number.isInteger(msg.tabId)) return false;
-    startTailor(msg.tabId).then(sendResponse);
+    startTailor(msg.tabId, msg.type === 'job-tab' ? 'job' : 'tailor').then(sendResponse);
     return true;
   }
-  if (msg.type === 'tailor-start') {
+  if (msg.type === 'tailor-start' || msg.type === 'job-start') {
     if (!isOwnContentScript(sender)) return false;
-    startTailor(sender.tab.id).then(sendResponse);
+    startTailor(sender.tab.id, msg.type === 'job-start' ? 'job' : 'tailor').then(sendResponse);
     return true;
   }
   if (msg.type === 'ai-tailor') {
@@ -235,7 +238,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
   if (msg.type === 'tailor-fill') {
-    if (!isTrustedSender(sender, 'tailor/')) return false;
+    if (!isTrustedSender(sender, 'tailor/') && !isTrustedSender(sender, 'job/')) return false;
     fillWithTailored(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not fill the application.' }));
     return true;
   }
