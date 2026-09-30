@@ -11,6 +11,7 @@ JobScript stores the details you enter on its options page:
 - contact details, links, skills and work-eligibility answers
 - optional demographic (EEO) answers, which default to "Decline to answer"
 - work history, education and your saved question-and-answer pairs (your "bank")
+- up to three references: their name, company, relationship to you, email, phone, years known and whether employers may contact them. JobScript only puts these into application forms you fill; it never sends them to Claude
 - your resume PDF, and its plain text (extracted on your device when you upload it)
 - if you use the Claude features: your Anthropic API key and your chosen model
 - your application tracker (company, job title, page address, date and status of each application you fill)

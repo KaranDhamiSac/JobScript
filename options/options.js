@@ -46,6 +46,20 @@ const LISTS = {
       { key: 'gradDate', label: 'Graduation date', type: 'month' },
     ],
   },
+  references: {
+    blank: S.blankReference,
+    max: S.MAX_REFERENCES,
+    title: (e) => [e.name, e.company].filter(Boolean).join(', ') || 'New reference',
+    fields: [
+      { key: 'name', label: 'Contact person' },
+      { key: 'company', label: 'Company' },
+      { key: 'relationship', label: 'Relationship to you', placeholder: 'Manager' },
+      { key: 'email', label: 'Email', type: 'email' },
+      { key: 'phone', label: 'Phone number', type: 'tel' },
+      { key: 'yearsKnown', label: 'Years known' },
+      { key: 'mayContact', label: 'May employers contact them?', type: 'select', options: [['yes', 'Yes'], ['no', 'No'], ['', 'Not set']] },
+    ],
+  },
   customAnswers: {
     blank: S.blankCustomAnswer,
     title: (e) => e.question || 'New question',
@@ -150,7 +164,11 @@ function renderList(listKey) {
       const label = document.createElement('label');
       if (field.wide) label.classList.add('wide');
       let input;
-      if (field.type === 'textarea' || field.type === 'lines') {
+      if (field.type === 'select') {
+        input = document.createElement('select');
+        for (const [value, text] of field.options) input.append(new Option(text, value));
+        input.value = entry[field.key] ?? '';
+      } else if (field.type === 'textarea' || field.type === 'lines') {
         input = document.createElement('textarea');
         input.value = field.type === 'lines' ? (entry[field.key] || []).join('\n') : entry[field.key] || '';
         if (field.type === 'lines') input.rows = 5;
@@ -190,6 +208,11 @@ function renderList(listKey) {
 for (const btn of document.querySelectorAll('[data-add]')) {
   btn.addEventListener('click', () => {
     const listKey = btn.dataset.add;
+    const max = LISTS[listKey].max;
+    if (max && profile[listKey].length >= max) {
+      alert(`You can save up to ${max}.`);
+      return;
+    }
     profile[listKey].push(LISTS[listKey].blank());
     setDirty(true);
     renderList(listKey);
