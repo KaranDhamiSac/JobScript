@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>JobScript Profile</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <main>
+    <header class="page-head">
+      <h1>JobScript profile</h1>
+      <p class="muted">Saved only in this browser. JobScript fills forms from this, but never submits them.</p>
+    </header>
+
+    <form id="profile-form" autocomplete="off">
+      <section>
+        <h2>Contact</h2>
+        <div class="grid">
+          <label>First name <input data-key="firstName" type="text"></label>
+          <label>Last name <input data-key="lastName" type="text"></label>
+          <label>Email <input data-key="email" type="email"></label>
+          <label>Phone <input data-key="phone" type="tel"></label>
+          <label class="wide">Street address <input data-key="address" type="text"></label>
+          <label>City <input data-key="city" type="text"></label>
+          <label>State <input data-key="state" type="text" placeholder="CA"></label>
+          <label>ZIP <input data-key="zip" type="text" inputmode="numeric"></label>
+          <label>Country <input data-key="country" type="text"></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Links</h2>
+        <div class="grid">
+          <label>LinkedIn URL <input data-key="linkedin" type="url" placeholder="https://linkedin.com/in/…"></label>
+          <label>GitHub URL <input data-key="github" type="url" placeholder="https://github.com/…"></label>
+          <label class="wide">Portfolio URL <input data-key="portfolio" type="url"></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Work eligibility</h2>
+        <div class="grid">
+          <label>Authorized to work in the US?
+            <select data-key="workAuthorized">
+              <option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option>
+            </select>
+          </label>
+          <label>Require visa sponsorship?
+            <select data-key="requiresSponsorship">
+              <option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option>
+            </select>
+          </label>
+          <label>Willing to relocate?
+            <select data-key="willingToRelocate">
+              <option value="">Not set</option><option value="yes">Yes</option><option value="no">No</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Voluntary self-identification</h2>
+        <p class="muted">These default to "Decline to answer".</p>
+        <div class="grid">
+          <label>Gender
+            <select data-key="gender">
+              <option>Decline to answer</option><option>Male</option><option>Female</option><option>Non-binary</option>
+            </select>
+          </label>
+          <label>Race / ethnicity
+            <select data-key="race">
+              <option>Decline to answer</option>
+              <option>Hispanic or Latino</option>
+              <option>White</option>
+              <option>Black or African American</option>
+              <option>Asian</option>
+              <option>Native Hawaiian or Other Pacific Islander</option>
+              <option>American Indian or Alaska Native</option>
+              <option>Two or More Races</option>
+            </select>
+          </label>
+          <label>Veteran status
+            <select data-key="veteran">
+              <option>Decline to answer</option>
+              <option>I am not a protected veteran</option>
+              <option>I identify as a protected veteran</option>
+            </select>
+          </label>
+          <label>Disability status
+            <select data-key="disability">
+              <option>Decline to answer</option>
+              <option>Yes, I have a disability</option>
+              <option>No, I do not have a disability</option>
+            </select>
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>Work history</h2>
+          <button type="button" class="secondary" data-add="workHistory">+ Add job</button>
+        </div>
+        <p class="muted">Most recent first. JobScript fills entries in this order.</p>
+        <div id="list-workHistory" class="list"></div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>Education</h2>
+          <button type="button" class="secondary" data-add="education">+ Add school</button>
+        </div>
+        <div id="list-education" class="list"></div>
+      </section>
+
+      <section>
+        <div class="section-head">
+          <h2>Custom answers</h2>
+          <button type="button" class="secondary" data-add="customAnswers">+ Add answer</button>
+        </div>
+        <p class="muted">Questions that repeat across applications. JobScript fills the answer when a form's question closely matches.</p>
+        <div id="list-customAnswers" class="list"></div>
+      </section>
+    </form>
+
+    <section>
+      <h2>Resume</h2>
+      <p id="resume-status" class="muted">No resume saved.</p>
+      <div class="row">
+        <label class="button secondary" for="resume-input" id="resume-choose">Upload PDF</label>
+        <input id="resume-input" type="file" accept="application/pdf,.pdf" hidden>
+        <button id="resume-remove" type="button" class="secondary danger" hidden>Remove</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Backup</h2>
+      <p class="muted">Export includes your profile and resume. Import replaces what is saved now.</p>
+      <div class="row">
+        <button id="export" type="button" class="secondary">Export JSON</button>
+        <label class="button secondary" for="import-input">Import JSON</label>
+        <input id="import-input" type="file" accept="application/json,.json" hidden>
+      </div>
+    </section>
+  </main>
+
+  <footer class="savebar">
+    <span id="save-status" class="muted" role="status"></span>
+    <button id="save" type="button" class="primary">Save profile</button>
+  </footer>
+
+  <script src="../lib/storage.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>

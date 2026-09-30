@@ -1,0 +1,27 @@
+/* Highlights added by content/autofill.js. Cleared at the start of every fill. */
+.jobscript-filled {
+  outline: 2px solid #22c55e !important;
+  outline-offset: 1px !important;
+  background-color: rgba(34, 197, 94, 0.08) !important;
+}
+
+.jobscript-needs {
+  outline: 2px solid #eab308 !important;
+  outline-offset: 1px !important;
+  background-color: rgba(234, 179, 8, 0.12) !important;
+}
+
+.jobscript-toast {
+  position: fixed !important;
+  top: 16px !important;
+  right: 16px !important;
+  z-index: 2147483647 !important;
+  max-width: 320px !important;
+  padding: 10px 14px !important;
+  border-radius: 8px !important;
+  background: #111827 !important;
+  color: #f9fafb !important;
+  font: 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25) !important;
+  pointer-events: none !important;
+}

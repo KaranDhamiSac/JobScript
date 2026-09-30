@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>JobScript</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <h1>JobScript</h1>
+    <button id="open-options" class="link" type="button">Edit profile</button>
+  </header>
+
+  <p id="profile-status" class="muted"></p>
+
+  <button id="fill" class="primary" type="button">Fill this page</button>
+  <p class="muted shortcut">Shortcut: <kbd id="shortcut">Alt+Shift+F</kbd></p>
+
+  <div id="result" class="result" hidden></div>
+
+  <p class="muted footnote">JobScript never submits. Review every field, then submit yourself.</p>
+
+  <script src="../lib/storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

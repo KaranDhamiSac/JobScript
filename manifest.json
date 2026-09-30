@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "JobScript",
+  "version": "0.1.0",
+  "description": "Autofill job applications on Greenhouse and Lever from your saved profile. Never submits for you.",
+  "permissions": ["storage", "unlimitedStorage", "scripting", "activeTab"],
+  "host_permissions": [
+    "https://*.greenhouse.io/*",
+    "https://jobs.lever.co/*",
+    "https://jobs.eu.lever.co/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "scripts": ["background.js"]
+  },
+  "action": {
+    "default_title": "JobScript",
+    "default_popup": "popup/popup.html"
+  },
+  "options_ui": {
+    "page": "options/options.html",
+    "open_in_tab": true
+  },
+  "commands": {
+    "fill-page": {
+      "suggested_key": {
+        "default": "Alt+Shift+F",
+        "mac": "Alt+Shift+F"
+      },
+      "description": "Fill this page"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.greenhouse.io/*",
+        "https://jobs.lever.co/*",
+        "https://jobs.eu.lever.co/*"
+      ],
+      "js": ["lib/storage.js", "lib/fieldMap.js", "content/autofill.js"],
+      "css": ["content/autofill.css"],
+      "all_frames": true,
+      "run_at": "document_idle"
+    }
+  ],
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "jobscript@jobscript.local",
+      "strict_min_version": "121.0"
+    }
+  }
+}
