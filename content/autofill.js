@@ -14,6 +14,7 @@
   const STOPWORDS = new Set([
     'the', 'a', 'an', 'you', 'your', 'are', 'do', 'to', 'of', 'in', 'for', 'is', 'and', 'or',
     'with', 'this', 'that', 'have', 'be', 'we', 'our', 'what', 'how', 'if', 'please', 'on', 'at',
+    'did', 'does', 'tell', 'me', 'my', 'would', 'can', 'us',
   ]);
 
   let running = false;
@@ -39,10 +40,16 @@
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
+  // Crude stemming so "heard"/"hear" and "relocating"/"relocate" line up.
+  function stem(t) {
+    return t.length > 4 ? t.replace(/(ing|ed|es|s|d|e)$/, '') : t;
+  }
+
   function tokens(s) {
     return norm(s)
       .split(' ')
-      .filter((t) => t.length > 1 && !STOPWORDS.has(t));
+      .filter((t) => t.length > 1 && !STOPWORDS.has(t))
+      .map(stem);
   }
 
   function similarity(a, b) {
@@ -234,6 +241,8 @@
       const type = (el.getAttribute('type') || '').toLowerCase();
       if (el.tagName === 'INPUT' && SKIP_INPUT_TYPES.has(type)) continue;
       if (el.readOnly && type !== 'file' && !isCombobox(el)) continue;
+      // react-select's hidden "requiredInput" twin of each dropdown; the dropdown itself is handled.
+      if (el.getAttribute('aria-hidden') === 'true' && el.tabIndex === -1) continue;
 
       if ((type === 'radio' || type === 'checkbox') && el.name) {
         const gk = type + ':' + el.name;
@@ -360,7 +369,8 @@
     if (c.exclude.some((re) => re.test(all))) return 0;
     if (d.autocomplete && c.autocomplete.includes(d.autocomplete)) return 1000;
 
-    const loose = c.type === 'bool' || c.type === 'choice';
+    // Questions and upload widgets tend to have long labels ("Resume/CV ATTACH Analyzing resume...").
+    const loose = c.type === 'bool' || c.type === 'choice' || c.type === 'file';
     let best = 0;
     const sources = [[d.label, 3], [d.aria, 3], [d.placeholder, 2], [d.attrs, 2], [d.context, 1]];
     for (const [text, weight] of sources) {
@@ -695,14 +705,95 @@
     }
   }
 
+  // Best search result for a typed value. Location/school searches often return
+  // "Sacramento, California, United States" for "Sacramento, CA", so fall back to the
+  // first result that starts with the same word.
+  function pickSuggestion(items, value) {
+    if (!items.length) return -1;
+    const idx = pickOption(items.map((o) => ({ text: o.textContent, value: '' })), value.text, value.hint);
+    if (idx >= 0) return idx;
+    const firstWord = norm(value.text).split(' ')[0];
+    return firstWord.length >= 4 ? items.findIndex((o) => norm(o.textContent).startsWith(firstWord)) : -1;
+  }
+
+  // Plain text boxes with a suggestion list next to them (Lever's "Current location").
+  // These often clear the text on blur unless a suggestion was picked.
+  const SUGGESTION_BOX_SELECTOR = '[class*="dropdown"], [class*="autocomplete"], [class*="suggest"], [role="listbox"]';
+
+  function suggestionBox(el) {
+    const parent = el.parentElement;
+    return parent ? [...parent.querySelectorAll(SUGGESTION_BOX_SELECTOR)].find((n) => !n.contains(el)) : null;
+  }
+
+  function suggestionItems(box) {
+    return [...box.querySelectorAll('[role="option"], li, [class*="result"] > *, [class*="suggestion"], [class*="item"]')].filter(
+      (n) =>
+        isVisible(n) &&
+        !n.querySelector('input') &&
+        clean(n.textContent).length > 0 &&
+        clean(n.textContent).length <= 150 &&
+        !/no .*(found|results)|loading|searching/i.test(n.textContent)
+    );
+  }
+
+  async function fillAutocompleteText(el, value, box) {
+    el.focus();
+    setNativeValue(el, value.text);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    // Widgets differ on which key event starts the search (Lever uses keydown), so send both.
+    const key = value.text.slice(-1);
+    el.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key }));
+    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key }));
+    const items = await waitFor(() => {
+      const it = suggestionItems(box);
+      return it.length ? it : null;
+    }, 3000);
+    const idx = items ? pickSuggestion(items, value) : -1;
+    if (idx >= 0) {
+      clickOption(items[idx]);
+      await sleep(150);
+    }
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    el.blur();
+    await sleep(50);
+    return clean(el.value) !== '';
+  }
+
+  function comboIsOpen(el) {
+    return el.getAttribute('aria-expanded') === 'true' || comboOptions(el).length > 0;
+  }
+
+  // Open a searchable dropdown without relying on page focus. When you click "Fill this page"
+  // the popup has focus, so el.focus() fires no focus event, and react-select won't open on
+  // mousedown alone. Greenhouse also wraps react-select with its own "Toggle flyout" button.
+  async function openCombobox(el) {
+    const control = el.closest('[class*="__control"], [class*="-control"]');
+    el.focus();
+    el.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    if (control) {
+      control.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, view: window }));
+      await sleep(60);
+      if (comboIsOpen(el)) return;
+      const toggle = control.querySelector('button') || control.querySelector('[class*="dropdown-indicator"], [class*="indicator"]');
+      if (toggle) {
+        for (const type of ['mousedown', 'mouseup', 'click']) {
+          toggle.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, view: window }));
+        }
+        await sleep(60);
+        if (comboIsOpen(el)) return;
+      }
+    }
+    keyEvent(el, 'ArrowDown', 40);
+  }
+
   async function fillCombobox(f, value) {
     const el = f.el;
     const choose = (opts) => pickOption(opts.map((o) => ({ text: o.textContent, value: '' })), value.text, value.hint);
 
-    el.focus();
-    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    keyEvent(el, 'ArrowDown', 40);
-    let opts = await waitFor(() => { const o = comboOptions(el); return o.length ? o : null; }, 800);
+    await openCombobox(el);
+    let opts = await waitFor(() => { const o = comboOptions(el); return o.length ? o : null; }, 500);
+    const hadInitialOptions = !!opts;
     let idx = opts ? choose(opts) : -1;
 
     // Not in the initial list: type to search (handles long or remotely loaded lists).
@@ -712,18 +803,13 @@
       const search = value.hint.month ? FM.MONTHS[value.hint.month - 1] : degreeSearch || value.text.slice(0, 40);
       setNativeValue(el, search);
       el.dispatchEvent(new Event('input', { bubbles: true }));
+      // A list that was already showing filters instantly; an empty one is probably loading remotely.
       opts = await waitFor(() => {
         const o = comboOptions(el);
         return o.length && choose(o) >= 0 ? o : null;
-      }, 2500);
+      }, hadInitialOptions ? 600 : 2500);
       opts = opts || comboOptions(el);
-      idx = opts.length ? choose(opts) : -1;
-      if (idx < 0 && opts.length) {
-        // Location/school searches often return "Sacramento, California, United States" for
-        // "Sacramento, CA", so accept the first result that starts with the same word.
-        const firstWord = norm(value.text).split(' ')[0];
-        if (firstWord.length >= 4) idx = opts.findIndex((o) => norm(o.textContent).startsWith(firstWord));
-      }
+      idx = pickSuggestion(opts, value);
     }
 
     if (idx < 0) {
@@ -764,7 +850,10 @@
       case 'checkboxGroup': return fillChoiceGroup(f, value);
       case 'checkbox': return fillCheckbox(f.el, value);
       case 'combobox': return fillCombobox(f, value);
-      default: return fillText(f.el, value.text);
+      default: {
+        const box = f.kind === 'text' && suggestionBox(f.el);
+        return box ? fillAutocompleteText(f.el, value, box) : fillText(f.el, value.text);
+      }
     }
   }
 
@@ -807,15 +896,20 @@
   // ---------------------------------------------------------------------------
   // Entry point
 
+  // The form-selector match holding the most fields. Lever, for example, has a dozen
+  // ".application-form" sections inside one form#application-form.
   function findRoot() {
     const site = FM.sites.find((s) => s.hosts.some((re) => re.test(location.hostname)));
+    let best = null;
     if (site) {
       for (const sel of site.formSelectors) {
-        const node = document.querySelector(sel);
-        if (node) return { root: node, site: site.name };
+        for (const node of document.querySelectorAll(sel)) {
+          const count = node.querySelectorAll('input, select, textarea').length;
+          if (count && (!best || count > best.count)) best = { node, count };
+        }
       }
     }
-    return { root: document.body, site: site ? site.name : location.hostname };
+    return { root: best ? best.node : document.body, site: site ? site.name : location.hostname };
   }
 
   // Elements already processed by a pass, so late-field passes only touch new fields.
