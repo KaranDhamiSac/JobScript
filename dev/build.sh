@@ -8,7 +8,7 @@ ROOT="$(dirname "$DEV")"
   cat "$DEV/stub.js" "$ROOT/lib/storage.js" "$ROOT/lib/fieldMap.js"
   # Let the proxied site's rules apply on 127.0.0.1 (the proxy sets window.__jsTargetSite).
   echo '(FieldMap.sites.find(function(s){return s.name===window.__jsTargetSite})||{hosts:[]}).hosts.push(/^127\.0\.0\.1$/);'
-  cat "$ROOT/content/autofill.js"
+  cat "$ROOT/content/panel.js" "$ROOT/content/autofill.js"
   printf '\n(function(){var s=document.getElementById("jobscript-test-css")||document.head.appendChild(Object.assign(document.createElement("style"),{id:"jobscript-test-css"}));s.textContent=%s;})();\n' \
     "$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1]).read()))' "$ROOT/content/autofill.css")"
 } > "$DEV/bundle.js"

@@ -3,7 +3,11 @@
   "name": "JobScript",
   "version": "0.1.0",
   "description": "Autofill job applications on Greenhouse and Lever from your saved profile. Never submits for you.",
-  "permissions": ["storage", "scripting", "activeTab"],
+  "permissions": [
+    "storage",
+    "scripting",
+    "activeTab"
+  ],
   "host_permissions": [
     "https://boards.greenhouse.io/*",
     "https://job-boards.greenhouse.io/*",
@@ -13,7 +17,9 @@
   ],
   "background": {
     "service_worker": "background.js",
-    "scripts": ["background.js"]
+    "scripts": [
+      "background.js"
+    ]
   },
   "action": {
     "default_title": "JobScript",
@@ -41,8 +47,15 @@
         "https://jobs.lever.co/*",
         "https://jobs.eu.lever.co/*"
       ],
-      "js": ["lib/storage.js", "lib/fieldMap.js", "content/autofill.js"],
-      "css": ["content/autofill.css"],
+      "js": [
+        "lib/storage.js",
+        "lib/fieldMap.js",
+        "content/panel.js",
+        "content/autofill.js"
+      ],
+      "css": [
+        "content/autofill.css"
+      ],
       "all_frames": true,
       "run_at": "document_idle"
     }

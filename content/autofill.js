@@ -9,6 +9,8 @@
 
   const FILLED_CLASS = 'jobscript-filled';
   const NEEDS_CLASS = 'jobscript-needs';
+  const SUGGESTED_CLASS = 'jobscript-suggested';
+  const FLASH_CLASS = 'jobscript-flash';
   const SKIP_INPUT_TYPES = new Set(['hidden', 'submit', 'button', 'reset', 'image', 'password', 'search']);
   const HEADING_SELECTOR = 'h1, h2, h3, h4, h5, h6, legend, [role="heading"]';
   const STOPWORDS = new Set([
@@ -237,7 +239,7 @@
     const out = [];
     const groups = new Map();
     for (const el of root.querySelectorAll('input, select, textarea')) {
-      if (el.disabled || el.closest('.jobscript-toast')) continue;
+      if (el.disabled) continue;
       const type = (el.getAttribute('type') || '').toLowerCase();
       if (el.tagName === 'INPUT' && SKIP_INPUT_TYPES.has(type)) continue;
       if (el.readOnly && type !== 'file' && !isCombobox(el)) continue;
@@ -447,6 +449,79 @@
     return null;
   }
 
+  // ---------------------------------------------------------------------------
+  // Scanner: per-field metadata for the side panel. IDs live only in this script's memory,
+  // never in DOM attributes.
+
+  const fieldIds = new WeakMap();
+  let nextFieldId = 1;
+
+  function idFor(el) {
+    let id = fieldIds.get(el);
+    if (!id) {
+      id = nextFieldId++;
+      fieldIds.set(el, id);
+    }
+    return id;
+  }
+
+  function displayLabel(f) {
+    let raw = clean(f.desc.labelRaw);
+    // Lever-style labels wrap the whole widget, status text included; prefer the title element.
+    const wrap = f.groupInputs ? null : f.el.closest('label');
+    const title = wrap && wrap.querySelector('[class*="label"], [class*="question"], [class*="title"]');
+    if (title && clean(title.textContent)) raw = clean(title.textContent);
+    // Upload widgets are often labelled by their button ("Attach"); the question sits above it.
+    if (f.kind === 'file' && /^(attach|upload|browse|choose( a)? file|select( a)? file)$/i.test(raw)) {
+      const parent = f.el.parentElement;
+      raw = clean(nearbyText(parent && parent.parentElement ? parent.parentElement : f.el)) || raw;
+    }
+    raw = raw.replace(/\s*[*✱]+\s*$/, '').replace(/\s*\(required\)\s*$/i, '');
+    return raw || clean(f.el.getAttribute('placeholder') || f.el.getAttribute('aria-label') || f.el.name) || '(unlabeled field)';
+  }
+
+  function optionTexts(f) {
+    if (f.kind === 'select') {
+      return [...f.el.options].map((o) => clean(o.textContent)).filter((t) => t && !isPlaceholderOption(t));
+    }
+    if (f.groupInputs) return f.groupInputs.map(optionLabel).filter(Boolean);
+    return [];
+  }
+
+  function categoryOf(f) {
+    const C = FM.categories;
+    if (f.match && f.match.section) return C.bySection[f.match.section] || 'custom';
+    if (f.match && f.match.key && C.byKey[f.match.key]) return C.byKey[f.match.key];
+    const text = f.desc.labelRaw || f.el.getAttribute('placeholder') || f.el.name || '';
+    for (const [cat, re] of C.labelPatterns) if (re.test(text)) return cat;
+    return 'custom';
+  }
+
+  // What the field currently holds, as display text.
+  function currentValueText(f) {
+    const el = f.el;
+    switch (f.kind) {
+      case 'radio':
+      case 'checkboxGroup':
+        return f.groupInputs.filter((i) => i.checked).map(optionLabel).join(', ');
+      case 'checkbox':
+        return el.checked ? 'Checked' : '';
+      case 'file':
+        return el.files && el.files[0] ? el.files[0].name : '';
+      case 'select': {
+        const opt = el.options[el.selectedIndex];
+        return opt && !isPlaceholderOption(clean(opt.textContent)) ? clean(opt.textContent) : '';
+      }
+      case 'combobox': {
+        const c = comboContainer(el);
+        const chosen = c && c.querySelector('[class*="single-value"], [class*="multi-value"]');
+        return chosen ? clean(chosen.textContent) : clean(el.value);
+      }
+      default:
+        return clean(el.value);
+    }
+  }
+
   function analyze(root, profile) {
     const headings = [...root.querySelectorAll(HEADING_SELECTOR)].filter((h) => {
       const t = clean(h.textContent);
@@ -461,6 +536,10 @@
       f.empty = isEmpty(f);
       f.datePart = detectDatePart(f.desc);
       f.match = matchField(f, profile);
+      f.id = idFor(f.el);
+      f.label = displayLabel(f);
+      f.options = optionTexts(f);
+      f.category = categoryOf(f);
 
       // Repeating sections: the nth "School" field on the page gets profile.education[n].
       if (f.match && f.match.section) {
@@ -874,7 +953,9 @@
   }
 
   // ---------------------------------------------------------------------------
-  // Highlighting and on-page feedback
+  // Highlighting
+
+  const STATUS_CLASS = { filled: FILLED_CLASS, needs: NEEDS_CLASS, suggested: SUGGESTED_CLASS };
 
   function highlightTarget(f) {
     if (f.groupInputs) {
@@ -889,24 +970,100 @@
     return el || f.el;
   }
 
+  function unmark(f) {
+    const target = highlightTarget(f);
+    if (target) target.classList.remove(FILLED_CLASS, NEEDS_CLASS, SUGGESTED_CLASS);
+  }
+
   function mark(f, cls) {
     const target = highlightTarget(f);
     if (target) target.classList.add(cls);
   }
 
   function clearHighlights() {
-    document.querySelectorAll('.' + FILLED_CLASS + ', .' + NEEDS_CLASS).forEach((n) =>
-      n.classList.remove(FILLED_CLASS, NEEDS_CLASS)
-    );
+    document
+      .querySelectorAll(`.${FILLED_CLASS}, .${NEEDS_CLASS}, .${SUGGESTED_CLASS}`)
+      .forEach((n) => n.classList.remove(FILLED_CLASS, NEEDS_CLASS, SUGGESTED_CLASS));
   }
 
-  function toast(message) {
-    document.querySelectorAll('.jobscript-toast').forEach((n) => n.remove());
-    const box = document.createElement('div');
-    box.className = 'jobscript-toast';
-    box.textContent = message;
-    document.body.appendChild(box);
-    setTimeout(() => box.remove(), 6000);
+  // ---------------------------------------------------------------------------
+  // Field status and the side panel
+
+  // id -> field, for every field shown in the panel during the current fill session.
+  const registry = new Map();
+  let session = null;
+
+  // status: 'filled' | 'suggested' | 'needs'. Only 'filled' by us and 'needs' on required
+  // fields get an on-page highlight; pre-filled fields are left alone.
+  function setStatus(f, status, detail, extra) {
+    f.status = status;
+    f.detail = detail || '';
+    f.draft = (extra && extra.draft) || '';
+    f.actions = (extra && extra.actions) || [];
+    unmark(f);
+    if (extra && extra.noHighlight) return;
+    if (status === 'filled') mark(f, FILLED_CLASS);
+    else if (status === 'suggested') mark(f, SUGGESTED_CLASS);
+    else if (status === 'needs' && f.required) mark(f, NEEDS_CLASS);
+  }
+
+  function preview(text) {
+    const t = clean(text);
+    return t.length > 70 ? t.slice(0, 67) + '…' : t;
+  }
+
+  function focusField(id) {
+    const f = registry.get(id);
+    if (!f || !f.el.isConnected) return;
+    const target = highlightTarget(f);
+    // Smooth scrolling stalls in background tabs, so only animate when the page is visible.
+    target.scrollIntoView({ block: 'center', behavior: document.visibilityState === 'visible' ? 'smooth' : 'auto' });
+    const focusEl = f.groupInputs ? f.groupInputs[0] : f.el;
+    try {
+      focusEl.focus({ preventScroll: true });
+    } catch (e) {
+      /* some inputs can't take focus */
+    }
+    target.classList.remove(FLASH_CLASS);
+    void target.offsetWidth; // restart the animation
+    target.classList.add(FLASH_CLASS);
+    setTimeout(() => target.classList.remove(FLASH_CLASS), 1600);
+  }
+
+  function counts() {
+    const c = { filled: 0, suggested: 0, needs: 0, needsRequired: 0, alreadyFilled: 0 };
+    for (const f of registry.values()) {
+      if (!f.el.isConnected) continue;
+      if (f.prefilled) {
+        c.alreadyFilled++;
+        continue;
+      }
+      c[f.status]++;
+      if (f.status === 'needs' && f.required) c.needsRequired++;
+    }
+    return c;
+  }
+
+  function renderPanel() {
+    if (!session) return;
+    const fields = [...registry.values()]
+      .filter((f) => f.el.isConnected)
+      .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    globalThis.JobScriptPanel.render({
+      note: session.note,
+      toolbarActions: session.toolbarActions || [],
+      onSelect: focusField,
+      items: fields.map((f) => ({
+        id: f.id,
+        category: f.category,
+        label: f.label,
+        status: f.status,
+        detail: f.detail,
+        required: f.required,
+        draft: f.draft,
+        actions: f.actions,
+      })),
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -931,41 +1088,57 @@
   // Elements already processed by a pass, so late-field passes only touch new fields.
   const handled = new WeakSet();
 
-  // One fill pass over the form. With onlyNew, fields handled by an earlier pass are skipped.
+  // Fill one field and record its status.
+  async function processField(f, resume) {
+    f.prefilled = !f.empty;
+    if (f.prefilled) {
+      setStatus(f, 'filled', 'Already had a value', { noHighlight: true });
+      return 'already';
+    }
+    let ok = false;
+    if (f.match) {
+      try {
+        ok = await applyMatch(f, resume);
+      } catch (err) {
+        console.warn('[JobScript] could not fill field', f.label, err);
+      }
+    }
+    if (ok) {
+      setStatus(f, 'filled', preview(currentValueText(f)));
+      return 'filled';
+    }
+    const why = f.match && !f.match.raw && f.kind !== 'file' ? 'Not in your profile' : '';
+    setStatus(f, 'needs', why);
+    return 'needs';
+  }
+
+  // One pass over the form: scan every field, then fill. With onlyNew, fields handled by an
+  // earlier pass are skipped.
   async function runPass(root, profile, resume, onlyNew) {
     const fields = analyze(root, profile);
-    const stats = { found: fields.length, filled: 0, total: 0, needsAttention: 0, alreadyFilled: 0 };
+    let processed = 0;
     for (const f of fields) {
       const els = f.groupInputs || [f.el];
       if (onlyNew && els.every((e) => handled.has(e))) continue;
       els.forEach((e) => handled.add(e));
-      if (!f.empty) {
-        stats.alreadyFilled++;
-        continue;
-      }
-      stats.total++;
-      let ok = false;
-      if (f.match) {
-        try {
-          ok = await applyMatch(f, resume);
-        } catch (err) {
-          console.warn('[JobScript] could not fill field', f.desc.labelRaw || f.el, err);
-        }
-      }
-      if (ok) {
-        stats.filled++;
-        mark(f, FILLED_CLASS);
-      } else if (f.required) {
-        stats.needsAttention++;
-        mark(f, NEEDS_CLASS);
-      }
+      registry.set(f.id, f);
+      processed++;
+      await processField(f, resume);
     }
-    return stats;
+    return { found: fields.length, processed };
   }
 
-  function summaryToast(totals, prefix) {
-    const note = totals.needsAttention ? ` · ${totals.needsAttention} required need you` : '';
-    toast(`${prefix} ${totals.filled} of ${totals.total} fields${note}. Review before submitting.`);
+  function summary() {
+    const c = counts();
+    return {
+      ok: true,
+      site: session.site,
+      filled: c.filled,
+      suggested: c.suggested,
+      needsAttention: c.needsRequired,
+      alreadyFilled: c.alreadyFilled,
+      total: c.filled + c.suggested + c.needs,
+    };
   }
 
   // After a fill, keep watching for a short while for fields that show up late: conditional
@@ -976,7 +1149,7 @@
   const LATE_FIELD_EXTEND_MS = 5000;
   let stopWatching = null;
 
-  function watchForLateFields(profile, resume, totals) {
+  function watchForLateFields(profile, resume) {
     if (stopWatching) stopWatching();
     let deadline = Date.now() + LATE_FIELD_WINDOW_MS;
     let debounce = null;
@@ -997,11 +1170,11 @@
       }
       running = true;
       try {
+        const before = counts().filled;
         const s = await runPass(findRoot().root, profile, resume, true);
-        if (!s.total) return;
-        for (const k of ['filled', 'total', 'needsAttention', 'alreadyFilled']) totals[k] += s[k];
-        if (s.filled) deadline = Math.max(deadline, Date.now() + LATE_FIELD_EXTEND_MS);
-        summaryToast(totals, `JobScript filled ${s.filled} more that appeared late. Now`);
+        if (!s.processed) return;
+        if (counts().filled > before) deadline = Math.max(deadline, Date.now() + LATE_FIELD_EXTEND_MS);
+        renderPanel();
       } finally {
         running = false;
       }
@@ -1040,21 +1213,22 @@
       const [profile, resume] = await Promise.all([S.getProfile(), S.getResume()]);
       const { root, site } = findRoot();
       clearHighlights();
+      registry.clear();
+      session = { site, note: 'Review every field before you submit. JobScript never submits.' };
       await ensureEntries(root, profile);
 
       // Start watching before the pass, so fields revealed by our own answers
       // (e.g. a follow-up question) are caught too. Late passes wait until this one finishes.
-      const totals = { filled: 0, total: 0, needsAttention: 0, alreadyFilled: 0 };
-      watchForLateFields(profile, resume, totals);
+      watchForLateFields(profile, resume);
 
       const s = await runPass(root, profile, resume, false);
       if (!s.found) {
         if (stopWatching) stopWatching();
+        session = null;
         return null;
       }
-      for (const k of ['filled', 'total', 'needsAttention', 'alreadyFilled']) totals[k] += s[k];
-      summaryToast(totals, 'JobScript filled');
-      return { ok: true, site, ...totals };
+      renderPanel();
+      return summary();
     } finally {
       running = false;
     }

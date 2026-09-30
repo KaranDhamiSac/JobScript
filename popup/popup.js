@@ -45,6 +45,7 @@ fillBtn.addEventListener('click', async () => {
       showResult('err', 'Nothing filled', (res && res.error) || 'Something went wrong.');
     } else {
       const parts = [];
+      if (res.suggested) parts.push(`${res.suggested} suggestion${res.suggested === 1 ? '' : 's'} to review in the side panel.`);
       if (res.needsAttention) parts.push(`${res.needsAttention} required field${res.needsAttention === 1 ? '' : 's'} need you (yellow).`);
       if (res.alreadyFilled) parts.push(`${res.alreadyFilled} already had a value and were skipped.`);
       showResult(

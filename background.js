@@ -4,7 +4,7 @@
 // New features (e.g. a future job-description match score) can add their own message
 // types to the onMessage router below. Every handler must go through isTrustedSender().
 
-const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'content/autofill.js'];
+const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'content/panel.js', 'content/autofill.js'];
 const CONTENT_CSS = ['content/autofill.css'];
 
 // Calls the fill in every frame that has the content script. Frames without it return null.
@@ -45,11 +45,12 @@ async function fillTab(tabId) {
       ok: true,
       site: acc.site || f.site,
       filled: acc.filled + f.filled,
+      suggested: acc.suggested + (f.suggested || 0),
       total: acc.total + f.total,
       needsAttention: acc.needsAttention + f.needsAttention,
       alreadyFilled: acc.alreadyFilled + f.alreadyFilled,
     }),
-    { ok: true, site: '', filled: 0, total: 0, needsAttention: 0, alreadyFilled: 0 }
+    { ok: true, site: '', filled: 0, suggested: 0, total: 0, needsAttention: 0, alreadyFilled: 0 }
   );
 
   // Tab-scoped badge; the browser clears it when the tab navigates.
