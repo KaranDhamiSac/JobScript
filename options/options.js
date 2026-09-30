@@ -276,11 +276,13 @@ resumeInput.addEventListener('change', async () => {
     await S.saveResume(
       S.sanitizeResume({ name: file.name, data: await readAsBase64(file), savedAt: new Date().toISOString() })
     );
-    importStatus.textContent = 'Saved. Click "Import info from resume" to fill your profile from it.';
   } catch (err) {
     alert('Could not save the resume: ' + (err.message || err));
+    renderResume();
+    return;
   }
-  renderResume();
+  await renderResume();
+  importFromResume();
 });
 
 resumeRemove.addEventListener('click', async () => {
@@ -444,7 +446,9 @@ function showReview(parsed, lines) {
   reviewBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-importBtn.addEventListener('click', async () => {
+// Reads the saved resume and opens the review screen. Runs right after you upload a PDF,
+// and again whenever you click "Import info from resume".
+async function importFromResume() {
   const resume = await S.getResume();
   if (!resume) return;
   importBtn.disabled = true;
@@ -463,7 +467,9 @@ importBtn.addEventListener('click', async () => {
   } finally {
     importBtn.disabled = false;
   }
-});
+}
+
+importBtn.addEventListener('click', importFromResume);
 
 // ---------------------------------------------------------------------------
 // AI answers (optional). Saved immediately, separately from the profile. The key is never
