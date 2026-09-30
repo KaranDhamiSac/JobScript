@@ -1131,9 +1131,11 @@
       .filter((f) => f.el.isConnected)
       .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
     const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft);
+    const actions = [{ label: 'Tailor & Fill', onClick: () => chrome.runtime.sendMessage({ type: 'tailor-start' }) }];
+    if (hasSuggestions) actions.push({ label: 'Accept all', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
       note: session.note,
-      toolbarActions: hasSuggestions ? [{ label: 'Accept all', onClick: acceptAllSuggestions }] : [],
+      toolbarActions: actions,
       onSelect: focusField,
       items: fields.map((f) => ({
         id: f.id,
@@ -1247,6 +1249,8 @@
 
   // Fill one field and record its status.
   async function processField(f, resume) {
+    // Tailor & Fill replaces whatever resume is attached with the tailored one.
+    if (session.forceResume && f.kind === 'file' && f.match && f.match.key === 'resume') f.empty = true;
     f.prefilled = !f.empty;
     if (f.prefilled) {
       setStatus(f, 'filled', 'Already had a value', { noHighlight: true });
@@ -1320,6 +1324,10 @@
       needsAttention: c.needsRequired,
       alreadyFilled: c.alreadyFilled,
       total: c.filled + c.suggested + c.needs,
+      // For the application tracker.
+      url: location.href,
+      jobTitle: session.jobTitle,
+      company: session.company,
     };
   }
 
@@ -1452,22 +1460,68 @@
     return questions.length ? questions : null;
   }
 
-  function jobInfo() {
-    const site = FM.sites.find((s) => s.hosts.some((re) => re.test(location.hostname)));
-    let description = '';
+  function currentSite() {
+    return FM.sites.find((s) => s.hosts.some((re) => re.test(location.hostname))) || null;
+  }
+
+  function descriptionFrom(doc) {
+    const site = currentSite();
     for (const sel of (site && site.jobDescriptionSelectors) || []) {
-      const node = document.querySelector(sel);
-      if (node && clean(node.innerText).length > 200) {
-        description = node.innerText;
-        break;
+      const node = doc.querySelector(sel);
+      const text = node && (node.innerText || node.textContent);
+      if (text && clean(text).length > 200) return text;
+    }
+    return '';
+  }
+
+  // Job title and company from the page title and metadata ("Job Application for X at Y" on
+  // Greenhouse, "Company - Title" on Lever), falling back to the heading and the URL.
+  function titleAndCompany() {
+    const t = clean(document.title);
+    let m = t.match(/^Job Application for (.+?) at (.+)$/i);
+    if (m) return { title: m[1], company: m[2] };
+    if (currentSite() && currentSite().name === 'Lever') {
+      m = t.match(/^(.+?)\s+-\s+(.+)$/);
+      if (m) return { title: m[2], company: m[1] };
+    }
+    const og = document.querySelector('meta[property="og:site_name"]');
+    const h1 = document.querySelector('h1, h2');
+    const slug = decodeURIComponent(location.pathname.split('/')[1] || '');
+    return {
+      title: h1 ? clean(h1.textContent) : t,
+      company: (og && clean(og.content)) || (slug ? slug.charAt(0).toUpperCase() + slug.slice(1) : location.hostname),
+    };
+  }
+
+  function jobInfo() {
+    const { title, company } = titleAndCompany();
+    const description = descriptionFrom(document) || document.body.innerText;
+    return { jobTitle: title, company, jobDescription: description.replace(/\n{3,}/g, '\n\n').slice(0, 15000) };
+  }
+
+  // The job posting for tailoring. Lever's /apply page has no description, so fetch the posting
+  // page (same site) and read it from there.
+  async function jobPosting() {
+    const { title, company } = titleAndCompany();
+    let description = descriptionFrom(document);
+    if (!description && /\/apply\/?$/.test(location.pathname)) {
+      try {
+        const res = await fetch(location.href.replace(/\/apply\/?(\?.*)?$/, ''), { credentials: 'same-origin' });
+        const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
+        description = descriptionFrom(doc);
+      } catch (e) {
+        /* fall back to the page text */
       }
     }
     if (!description) description = document.body.innerText;
-    const h1 = document.querySelector('h1, h2');
+    const site = currentSite();
     return {
-      jobTitle: h1 ? clean(h1.textContent) : document.title,
-      company: decodeURIComponent(location.pathname.split('/')[1] || location.hostname),
-      jobDescription: description.replace(/\n{3,}/g, '\n\n').slice(0, 15000),
+      title,
+      company,
+      url: location.href,
+      site: site ? site.name : location.hostname,
+      description: description.replace(/\n{3,}/g, '\n\n').slice(0, 20000),
+      hasForm: collectFields(findRoot().root).length > 0,
     };
   }
 
@@ -1523,17 +1577,25 @@
   }
 
   // Returns null when this frame has no form fields, so background.js can ignore it.
-  async function fillPage() {
+  // opts.tailoredId: attach that tailored resume instead of the master (replacing any file
+  // already attached to the resume field).
+  async function fillPage(opts) {
     if (running) return { ok: false, error: 'A fill is already running on this page.' };
     running = true;
     let aiQuestions = null;
     try {
-      const [profile, resume] = await Promise.all([S.getProfile(), S.getResume()]);
+      const tailoredId = opts && typeof opts.tailoredId === 'string' ? opts.tailoredId : '';
+      const tailored = tailoredId ? await S.getTailored(tailoredId) : null;
+      const [profile, master] = await Promise.all([S.getProfile(), tailored ? null : S.getResume()]);
+      const resume = tailored || master;
+      // Pages that render their form after load (React apps) may not have fields yet.
+      if (!collectFields(findRoot().root).length) await waitFor(() => collectFields(findRoot().root).length > 0, 3000);
       const { root, site } = findRoot();
       clearHighlights();
       registry.clear();
       globalThis.JobScriptBank.reset();
-      session = { site, note: DEFAULT_NOTE };
+      session = { site, note: tailored ? `Attached your tailored resume (${tailored.name}). ` + DEFAULT_NOTE : DEFAULT_NOTE, forceResume: !!tailored };
+      Object.assign(session, (({ title, company }) => ({ jobTitle: title, company }))(titleAndCompany()));
       await ensureEntries(root, profile);
 
       // Start watching before the pass, so fields revealed by our own answers
@@ -1561,4 +1623,5 @@
   }
 
   globalThis.__jobscriptFill = fillPage;
+  globalThis.__jobscriptJobPosting = jobPosting;
 })();

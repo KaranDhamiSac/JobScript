@@ -13,6 +13,8 @@ JobScript stores the details you enter on its options page:
 - work history, education and your saved question-and-answer pairs (your "bank")
 - your resume PDF, and its plain text (extracted on your device when you upload it)
 - if you use the Claude features: your Anthropic API key and your chosen model
+- your application tracker (company, job title, page address, date and status of each application you fill)
+- tailored resumes you approve, saved with their application (the most recent 60)
 
 ## Where it is stored
 
@@ -24,9 +26,9 @@ Reading text out of your resume PDF always happens on your device, using a copy 
 
 ## What JobScript sends, and to whom
 
-**By default, nothing.** JobScript has no servers and no analytics or tracking. Unless you click **Import with Claude** or turn on AI answers, it makes no network requests.
+**By default, nothing.** JobScript has no servers and no analytics or tracking. Unless you click **Import with Claude** or **Tailor & Fill**, or turn on AI answers, it makes no network requests.
 
-Your information leaves your device in three ways.
+Your information leaves your device in four ways.
 
 ### 1. Into the job application you fill
 
@@ -42,7 +44,11 @@ JobScript never submits an application for you.
 
 With an API key saved, the options page shows **Import with Claude**. Clicking it sends your resume's text to Anthropic's API, so Claude can turn it into a draft profile for you to review. The text includes everything on your resume, **including your name, email, phone number and address**, because those are the details being imported. Nothing is sent when you upload a resume; only when you click that button. **Import on this device** reads the resume without sending anything.
 
-### 3. To Anthropic, only if you turn on AI answers
+### 3. To Anthropic, only if you click Tailor & Fill
+
+**Tailor & Fill** sends Anthropic your master resume (jobs, projects, bullet points, skills and education, without your name or contact details) and the job posting from the page, so Claude can pick, reorder and reword your existing bullets for that job. The tailored PDF is then built on your device with a bundled PDF library, and nothing is used until you approve it.
+
+### 4. To Anthropic, only if you turn on AI answers
 
 AI answers are **off by default**. If you turn them on and add your own Anthropic API key, then each time you click Fill, JobScript sends these to Anthropic's API (`api.anthropic.com`) to ask Claude to suggest answers:
 

@@ -1,0 +1,127 @@
+:root {
+  --bg: #f9fafb;
+  --card: #ffffff;
+  --fg: #111827;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --input-bg: #ffffff;
+  --accent: #2563eb;
+  --accent-fg: #ffffff;
+  --changed: rgba(124, 58, 237, 0.08);
+  --reverted: rgba(234, 179, 8, 0.14);
+  --missing: #b45309;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1120;
+    --card: #111827;
+    --fg: #f3f4f6;
+    --muted: #9ca3af;
+    --border: #374151;
+    --input-bg: #1f2937;
+    --accent: #3b82f6;
+    --changed: rgba(167, 139, 250, 0.12);
+    --reverted: rgba(250, 204, 21, 0.12);
+    --missing: #fbbf24;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+main { max-width: 1100px; margin: 0 auto; padding: 24px 16px 100px; }
+h1 { font-size: 22px; margin: 0 0 4px; }
+h2 { font-size: 16px; margin: 0 0 8px; }
+h3 { font-size: 13px; margin: 12px 0 6px; color: var(--muted); }
+.muted { color: var(--muted); }
+.small { font-size: 12px; }
+
+section {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 16px;
+  margin: 16px 0;
+}
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 10px 14px; }
+.grid .wide { grid-column: 1 / -1; }
+label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; font-weight: 500; }
+label.check { flex-direction: row; align-items: center; gap: 8px; }
+
+input, textarea, select {
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--fg);
+  font: inherit;
+  font-weight: 400;
+}
+input[type="checkbox"] { width: auto; }
+textarea { resize: vertical; }
+
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.row select { width: auto; min-width: 240px; }
+
+button {
+  padding: 7px 14px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.5; cursor: default; }
+.primary { background: var(--accent); color: var(--accent-fg); border: 1px solid var(--accent); }
+.secondary { background: transparent; color: var(--fg); border: 1px solid var(--border); }
+
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { padding: 2px 10px; border: 1px solid var(--border); border-radius: 999px; font-size: 12px; }
+.chips.missing .chip { border-color: var(--missing); color: var(--missing); }
+.chips:empty::after { content: "None"; color: var(--muted); font-size: 12px; }
+
+.entry { border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+.entry.excluded { opacity: 0.5; }
+.entry-head { display: grid; grid-template-columns: auto 1fr 200px; gap: 8px; align-items: center; margin-bottom: 6px; }
+.entry-sub { margin: 0 0 10px 28px; }
+
+.bullet { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; align-items: start; padding: 6px 0; border-top: 1px dashed var(--border); }
+.bullet .original { font-size: 13px; color: var(--muted); padding-top: 6px; }
+.bullet.changed textarea { background: var(--changed); }
+.bullet.reverted textarea { background: var(--reverted); }
+.bullet .note { grid-column: 3; font-size: 12px; color: var(--muted); }
+.bullet.excluded .original, .bullet.excluded textarea { opacity: 0.45; }
+.cols { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px; font-size: 12px; color: var(--muted); font-weight: 600; margin: 4px 0; }
+
+.savebar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px max(16px, calc((100vw - 1100px) / 2 + 16px));
+  background: var(--card);
+  border-top: 1px solid var(--border);
+}
+.spacer { flex: 1; }
+
+#status { font-weight: 500; margin: 0 0 6px; }
+.done { border-color: #16a34a; }
+
+@media (max-width: 760px) {
+  .bullet, .cols { grid-template-columns: auto 1fr; }
+  .bullet .original { grid-column: 2; }
+  .bullet textarea, .bullet .note { grid-column: 2; }
+  .entry-head { grid-template-columns: auto 1fr; }
+}

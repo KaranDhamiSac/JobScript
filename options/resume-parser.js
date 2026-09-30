@@ -237,7 +237,7 @@ function isTechList(part) {
 // Handles "Company  City, ST" + "Title | Tech, Stack  Mon YYYY - Present", "Title, Company",
 // "Title at Company" and "Company — Title".
 function parseJobHeader(head) {
-  const entry = { employer: '', title: '', location: '', startDate: '', endDate: '', current: false, supervisorName: '', supervisorPhone: '', description: '', source: head.map(clean).join(' / ') };
+  const entry = { employer: '', title: '', location: '', startDate: '', endDate: '', current: false, supervisorName: '', supervisorPhone: '', bullets: [], description: '', source: head.map(clean).join(' / ') };
   const named = []; // candidate names/titles, in order
   for (const line of head) {
     let rest = line;
@@ -298,11 +298,57 @@ function parseWork(lines) {
 
     groups.forEach((head, gi) => {
       const entry = parseJobHeader(head);
-      if (gi === groups.length - 1) entry.description = block.body.join('\n');
+      if (gi === groups.length - 1) {
+        entry.bullets = block.body.slice();
+        entry.description = block.body.join('\n');
+      }
       if (entry.employer || entry.title) entries.push(entry);
     });
   }
   return entries;
+}
+
+// "Trailmix | Hiking Route Planner React, Flask, Python" -> name "Trailmix",
+// subtitle "Hiking Route Planner", tech "React, Flask, Python".
+function parseProjectHeader(head) {
+  const project = { name: '', subtitle: '', tech: '', link: '', startDate: '', endDate: '', bullets: [], source: head.map(clean).join(' / ') };
+  let text = clean(head.join(' '));
+  const range = text.match(RANGE_RE);
+  if (range) {
+    project.startDate = toYearMonth(range[1], '01');
+    if (!isPresent(range[2])) project.endDate = toYearMonth(range[2], '12');
+    text = clean(text.replace(range[0], ' '));
+  }
+  const url = text.match(URL_RE);
+  if (url) {
+    project.link = url[0].replace(/^(?!https?:\/\/)/, 'https://');
+    text = clean(text.replace(url[0], ' '));
+  }
+  const bar = text.split(/\s+[|–—]\s+/);
+  project.name = bar.shift() || '';
+  let rest = bar.join(' | ');
+  const pieces = rest.split(/,\s+/);
+  if (pieces.length >= 2) {
+    // The tech list runs to the end; its first item is glued to the subtitle ("Platform Next.js").
+    const first = pieces[0].split(' ');
+    const firstTech = first.pop();
+    project.subtitle = first.join(' ');
+    project.tech = [firstTech, ...pieces.slice(1)].join(', ');
+  } else {
+    project.subtitle = rest;
+  }
+  return project;
+}
+
+function parseProjects(lines) {
+  const projects = [];
+  for (const block of blocks(lines)) {
+    if (!block.head.length) continue;
+    const project = parseProjectHeader(block.head);
+    project.bullets = block.body.slice();
+    if (project.name) projects.push(project);
+  }
+  return projects;
 }
 
 function degreeInfo(line) {
@@ -418,6 +464,7 @@ export function parseResume(lines) {
   return {
     contact: parseContact(headerLines, allText),
     workHistory: parseWork(sections.work),
+    projects: parseProjects(sections.projects),
     education: parseEducation(sections.education),
     skills: parseSkills(sections.skills),
   };

@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tailor Resume</title>
+  <link rel="stylesheet" href="tailor.css">
+</head>
+<body>
+  <main>
+    <header class="page-head">
+      <h1>Tailor your resume</h1>
+      <p id="job-line" class="muted"></p>
+    </header>
+
+    <section id="status-box">
+      <p id="status" role="status"></p>
+      <p class="muted small" id="sent-note">Claude receives your master resume (jobs, projects, bullets, skills, education; no contact details) and this job posting. It can only reword and reorder what’s already in your resume; JobScript checks every line and puts back the original wherever a rule was broken.</p>
+      <div class="row">
+        <button id="allow" type="button" class="primary" hidden>Allow access to Anthropic and tailor</button>
+        <button id="retry" type="button" class="secondary" hidden>Try again</button>
+      </div>
+    </section>
+
+    <div id="review" hidden>
+      <section>
+        <h2>Keywords in this posting</h2>
+        <p class="muted small">Missing ones are listed so you know the gap. JobScript never adds them; if you really have one, add it to your master resume in Options first.</p>
+        <h3>Found in your resume</h3>
+        <div id="kw-found" class="chips"></div>
+        <h3>Missing from your resume</h3>
+        <div id="kw-missing" class="chips missing"></div>
+      </section>
+
+      <section>
+        <h2>Header</h2>
+        <div class="grid">
+          <label>Name <input id="r-name" type="text"></label>
+          <label class="wide">Contact line <input id="r-contact" type="text"></label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Experience</h2>
+        <p class="muted small">Left: your master bullet. Right: the tailored version, which you can edit. Untick anything to leave it out.</p>
+        <div id="jobs"></div>
+      </section>
+
+      <section>
+        <h2>Projects</h2>
+        <div id="projects"></div>
+        <div class="row"><select id="add-project"></select><button id="add-project-btn" type="button" class="secondary">Add project</button></div>
+      </section>
+
+      <section>
+        <h2>Education</h2>
+        <div id="education"></div>
+      </section>
+
+      <section>
+        <h2>Technical skills</h2>
+        <p class="muted small">Ordered by relevance to this job. Only skills from your master resume.</p>
+        <textarea id="skills" rows="3"></textarea>
+      </section>
+    </div>
+  </main>
+
+  <footer class="savebar" id="actions" hidden>
+    <span id="file-name" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="preview" type="button" class="secondary">Preview PDF</button>
+    <button id="approve" type="button" class="primary">Approve &amp; fill application</button>
+  </footer>
+
+  <script src="../lib/storage.js"></script>
+  <script type="module" src="tailor.js"></script>
+</body>
+</html>

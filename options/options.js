@@ -17,7 +17,20 @@ const LISTS = {
       { key: 'current', label: 'I currently work here', type: 'checkbox' },
       { key: 'supervisorName', label: 'Supervisor name' },
       { key: 'supervisorPhone', label: 'Supervisor phone', type: 'tel' },
-      { key: 'description', label: 'Description', type: 'textarea', wide: true },
+      { key: 'bullets', label: 'Bullet points, one per line (your master list)', type: 'lines', wide: true },
+    ],
+  },
+  projects: {
+    blank: S.blankProject,
+    title: (e) => [e.name, e.subtitle].filter(Boolean).join(' | ') || 'New project',
+    fields: [
+      { key: 'name', label: 'Project name' },
+      { key: 'subtitle', label: 'Short description', placeholder: 'Hiking route planner' },
+      { key: 'tech', label: 'Technologies', placeholder: 'Next.js, FastAPI, PostgreSQL' },
+      { key: 'link', label: 'Link', type: 'url' },
+      { key: 'startDate', label: 'Start date', type: 'month' },
+      { key: 'endDate', label: 'End date', type: 'month' },
+      { key: 'bullets', label: 'Bullet points, one per line', type: 'lines', wide: true },
     ],
   },
   education: {
@@ -137,9 +150,10 @@ function renderList(listKey) {
       const label = document.createElement('label');
       if (field.wide) label.classList.add('wide');
       let input;
-      if (field.type === 'textarea') {
+      if (field.type === 'textarea' || field.type === 'lines') {
         input = document.createElement('textarea');
-        input.value = entry[field.key] || '';
+        input.value = field.type === 'lines' ? (entry[field.key] || []).join('\n') : entry[field.key] || '';
+        if (field.type === 'lines') input.rows = 5;
       } else if (field.type === 'checkbox') {
         label.classList.add('check');
         input = document.createElement('input');
@@ -155,7 +169,8 @@ function renderList(listKey) {
       inputs[field.key] = input;
 
       input.addEventListener('input', () => {
-        entry[field.key] = field.type === 'checkbox' ? input.checked : input.value;
+        entry[field.key] =
+          field.type === 'checkbox' ? input.checked : field.type === 'lines' ? input.value.split('\n') : input.value;
         if (field.key === 'current' && inputs.endDate) inputs.endDate.disabled = input.checked;
         title.textContent = `${index + 1}. ${def.title(entry)}`;
         setDirty(true);
@@ -343,6 +358,7 @@ function reviewEntry(container, entry, fields, checked, heading) {
   for (const f of fields) {
     let input;
     if (f.type === 'textarea') input = h('textarea', { value: entry[f.key] || '' });
+    else if (f.type === 'lines') input = h('textarea', { value: (entry[f.key] || []).join('\n'), rows: '5' });
     else if (f.type === 'checkbox') input = h('input', { type: 'checkbox', checked: !!entry[f.key] });
     else input = h('input', { type: f.type || 'text', value: entry[f.key] || '' });
     inputs[f.key] = input;
@@ -357,7 +373,12 @@ function reviewEntry(container, entry, fields, checked, heading) {
   return () => {
     if (!box.checked) return null;
     const out = {};
-    for (const f of fields) out[f.key] = f.type === 'checkbox' ? inputs[f.key].checked : inputs[f.key].value.trim();
+    for (const f of fields) {
+      const input = inputs[f.key];
+      out[f.key] = f.type === 'checkbox' ? input.checked
+        : f.type === 'lines' ? input.value.split('\n').map((l) => l.trim()).filter(Boolean)
+        : input.value.trim();
+    }
     return out;
   };
 }
@@ -386,7 +407,7 @@ function showReview(parsed, source) {
     })
   );
 
-  const getters = { contact: [], workHistory: [], education: [], skills: null, questionnaire: [] };
+  const getters = { contact: [], workHistory: [], projects: [], education: [], skills: null, questionnaire: [] };
 
   const contactGrid = h('div', { class: 'grid' });
   for (const [key, label] of CONTACT_FIELDS) {
@@ -408,10 +429,11 @@ function showReview(parsed, source) {
 
   const lists = [
     ['workHistory', 'Work history', (e) => [e.title, e.employer].filter(Boolean).join(' at ') || 'Job', ['employer', 'title']],
+    ['projects', 'Projects', (e) => e.name || 'Project', ['name']],
     ['education', 'Education', (e) => e.school || e.degree || 'School', ['school', 'degree']],
   ];
   for (const [key, title, heading, dupKeys] of lists) {
-    if (!parsed[key].length) continue;
+    if (!(parsed[key] || []).length) continue;
     const container = h('div', { class: 'list' });
     reviewBox.append(h('h3', { text: title }), container);
     for (const entry of parsed[key]) {
@@ -431,7 +453,7 @@ function showReview(parsed, source) {
     getters.skills = () => (box.checked ? input.value : '');
   }
 
-  const found = getters.contact.length + getters.workHistory.length + getters.education.length + (getters.skills ? 1 : 0);
+  const found = getters.contact.length + getters.workHistory.length + getters.projects.length + getters.education.length + (getters.skills ? 1 : 0);
   if (!found) reviewBox.append(h('p', { text: 'JobScript couldn’t pick out any details. You can still fill your profile by hand.' }));
 
   reviewBox.append(
@@ -460,7 +482,7 @@ function showReview(parsed, source) {
     }
     const byRecent = (dateKey) => (a, b) =>
       (b.current ? 1 : 0) - (a.current ? 1 : 0) || String(b[dateKey] || '').localeCompare(String(a[dateKey] || ''));
-    for (const [key, dateKey] of [['workHistory', 'startDate'], ['education', 'gradDate']]) {
+    for (const [key, dateKey] of [['workHistory', 'startDate'], ['projects', 'startDate'], ['education', 'gradDate']]) {
       const added = getters[key].map((g) => g()).filter(Boolean).map((e) => Object.assign(LISTS[key].blank(), e));
       if (added.length) profile[key] = [...profile[key], ...added].sort(byRecent(dateKey));
     }

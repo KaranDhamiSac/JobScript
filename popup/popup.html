@@ -11,14 +11,30 @@
     <button id="open-options" class="link" type="button">Edit profile</button>
   </header>
 
-  <p id="profile-status" class="muted"></p>
+  <nav class="tabs" role="tablist">
+    <button id="tab-fill" class="tab active" type="button" role="tab" aria-selected="true">Fill</button>
+    <button id="tab-apps" class="tab" type="button" role="tab" aria-selected="false">Applications</button>
+  </nav>
 
-  <button id="fill" class="primary" type="button">Fill this page</button>
-  <p class="muted shortcut">Shortcut: <kbd id="shortcut">Alt+Shift+F</kbd></p>
+  <div id="panel-fill" role="tabpanel">
+    <p id="profile-status" class="muted"></p>
 
-  <div id="result" class="result" hidden></div>
+    <button id="fill" class="primary" type="button">Fill this page</button>
+    <button id="tailor" class="secondary wide" type="button">Tailor &amp; Fill</button>
+    <p class="muted shortcut">Shortcut: <kbd id="shortcut">Alt+Shift+F</kbd></p>
 
-  <p class="muted footnote">JobScript never submits. Review every field, then submit yourself.</p>
+    <div id="result" class="result" hidden></div>
+
+    <p class="muted footnote">JobScript never submits. Review every field, then submit yourself.</p>
+  </div>
+
+  <div id="panel-apps" role="tabpanel" hidden>
+    <div class="apps-head">
+      <span id="apps-count" class="muted"></span>
+      <button id="export-csv" class="link" type="button">Export CSV</button>
+    </div>
+    <ul id="apps" class="apps"></ul>
+  </div>
 
   <script src="../lib/storage.js"></script>
   <script src="popup.js"></script>

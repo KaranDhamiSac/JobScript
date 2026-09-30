@@ -8,6 +8,9 @@ A Chrome/Firefox extension (Manifest V3) that autofills job applications on Gree
 - **Side panel:** lists every field by category, marked filled (green), suggested (purple) or needs you (yellow). Click an item to jump to its field.
 - **Confidence:** each match gets a score. High-confidence matches fill automatically, medium ones are suggestions you accept, and low ones stay yellow. Thresholds live in `lib/fieldMap.js` (`confidence`).
 - **Info bank:** import your profile from your resume PDF (parsed locally, reviewed before saving). When you answer a question JobScript left empty, **Save to bank** keeps the answer for next time.
+- **Master resume:** your profile holds every job (as bullet lists), project and skill. Import it from your resume PDF with Claude or on your device, and review each parsed entry next to the resume line it came from.
+- **Tailor & Fill:** on a job page, Claude picks and rewords your most relevant bullets and projects and orders your skills for that posting. JobScript enforces the rules in code (no new skills, tools or metrics; numbers kept exactly) and shows original vs tailored side by side with the posting's missing keywords. On approval it builds a one-page ATS-friendly PDF locally (`FirstName_LastName_Company.pdf`), attaches it and fills the form.
+- **Applications tracker:** every fill is logged in the popup's Applications tab (one entry per job, with status and the tailored resume), exportable as CSV.
 - **AI answers (optional, off by default):** with your own Anthropic API key, Claude suggests answers to the rest, using only facts from your profile and resume. Short answers are suggestions; essays are drafts you insert.
 
 See [PRIVACY.md](PRIVACY.md) for what JobScript stores and sends. Everything stays local unless you turn on the optional AI answers, which send specific data to Anthropic with your own API key.

@@ -5,7 +5,7 @@ Usage: python3 scripts/package.py
 Output: dist/jobscript-chrome-<version>.zip and dist/jobscript-firefox-<version>.zip
 
 Only the paths in INCLUDE are packaged, so dev/, scripts/, docs and anything else
-in the repo can never end up in a store upload.
+in the repo can never end up in a store upload. Vendored READMEs are skipped; licenses ship.
 """
 import json
 import pathlib
@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DIST = ROOT / 'dist'
 
 # Runtime files only. Add new extension folders here (e.g. "icons") when they exist.
-INCLUDE = ['background.js', 'lib', 'content', 'popup', 'options']
+INCLUDE = ['background.js', 'lib', 'content', 'popup', 'options', 'tailor']
 
 
 def browser_manifest(manifest, browser):
@@ -37,7 +37,7 @@ def collect_files():
         elif path.is_dir():
             files.extend(
                 p for p in sorted(path.rglob('*'))
-                if p.is_file() and not p.name.startswith('.') and p.suffix != '.md'
+                if p.is_file() and not p.name.startswith('.') and p.name != 'README.md'
             )
         else:
             raise SystemExit(f'Missing extension path: {entry}')

@@ -12,27 +12,35 @@ const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'content/panel.js', 
 const CONTENT_CSS = ['content/autofill.css'];
 
 // Calls the fill in every frame that has the content script. Frames without it return null.
-async function callFill(tabId, allFrames) {
+// Runs `fn` (by name, on globalThis) in every frame that has the content script.
+async function callInFrames(tabId, allFrames, fnName, arg) {
   const results = await chrome.scripting.executeScript({
     target: { tabId, allFrames },
-    func: () => (typeof globalThis.__jobscriptFill === 'function' ? globalThis.__jobscriptFill() : null),
+    func: (name, a) => (typeof globalThis[name] === 'function' ? globalThis[name](a) : null),
+    args: [fnName, arg === undefined ? null : arg],
   });
   return (results || []).map((r) => r && r.result).filter(Boolean);
 }
 
-async function fillTab(tabId) {
+// Same as callInFrames, but on sites without the built-in content script, injects it first
+// (top frame only) using the temporary activeTab grant from your click or shortcut.
+async function callWithInjection(tabId, fnName, arg) {
+  let frames = await callInFrames(tabId, true, fnName, arg);
+  if (!frames.length) {
+    await chrome.scripting.insertCSS({ target: { tabId }, files: CONTENT_CSS });
+    await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_FILES });
+    frames = await callInFrames(tabId, false, fnName, arg);
+  }
+  return frames;
+}
+
+// opts.tailoredId: attach that tailored resume instead of the master.
+async function fillTab(tabId, opts) {
   let frames;
   try {
     // Greenhouse and Lever frames already have the content script (including Greenhouse
     // forms embedded in an iframe on a company's careers page).
-    frames = await callFill(tabId, true);
-    if (!frames.length) {
-      // Any other site: inject on demand into the top frame only. This relies on the temporary
-      // activeTab grant from the click or shortcut, so no broad host permission is needed.
-      await chrome.scripting.insertCSS({ target: { tabId }, files: CONTENT_CSS });
-      await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_FILES });
-      frames = await callFill(tabId, false);
-    }
+    frames = await callWithInjection(tabId, '__jobscriptFill', opts || null);
   } catch (err) {
     return { ok: false, error: 'JobScript cannot run on this page.' };
   }
@@ -59,6 +67,18 @@ async function fillTab(tabId) {
 
   await grantAiAllowance(tabId);
 
+  // Application tracker: one entry per job (same URL updates the existing entry).
+  const withJob = done.find((f) => f.company || f.jobTitle) || done[0];
+  const tailored = opts && opts.tailoredId ? await JobScriptStorage.getTailored(opts.tailoredId) : null;
+  await JobScriptStorage.upsertApplication({
+    url: withJob.url,
+    company: withJob.company,
+    title: withJob.jobTitle,
+    site: summary.site,
+    tailoredId: tailored ? opts.tailoredId : '',
+    tailoredFileName: tailored ? tailored.name : '',
+  });
+
   // Tab-scoped badge; the browser clears it when the tab navigates.
   await chrome.action.setBadgeBackgroundColor({ tabId, color: summary.needsAttention ? '#ca8a04' : '#16a34a' });
   await chrome.action.setBadgeText({ tabId, text: String(summary.filled) });
@@ -70,15 +90,12 @@ async function activeTabId() {
   return tab && tab.id;
 }
 
-// Only our own extension pages (the popup) may send commands. Messages from content scripts
-// arrive with sender.tab set and are rejected, as is anything from another extension.
+// Only our own extension pages (popup, options, tailor) may send these commands. A content
+// script's sender.url is the web page's address, so it can't pass; neither can another
+// extension. Pages opened in a tab (options, tailor) must be showing an extension page there.
 function isTrustedSender(sender, pagePath) {
-  return (
-    sender.id === chrome.runtime.id &&
-    !sender.tab &&
-    typeof sender.url === 'string' &&
-    sender.url.startsWith(chrome.runtime.getURL(pagePath))
-  );
+  const ownPage = (url) => typeof url === 'string' && url.startsWith(chrome.runtime.getURL(pagePath));
+  return sender.id === chrome.runtime.id && ownPage(sender.url) && (!sender.tab || ownPage(sender.tab.url));
 }
 
 // ---------------------------------------------------------------------------
@@ -130,6 +147,60 @@ async function parseResumeWithAi(msg) {
   return JobScriptAI.parseResume({ apiKey, model: settings.model, text });
 }
 
+// ---------------------------------------------------------------------------
+// Tailor & Fill: scrape the posting, then open the review page in a new tab. The review page
+// asks Claude for a tailored version, you approve it, and it comes back here to fill the tab.
+
+async function startTailor(tabId) {
+  let postings;
+  try {
+    postings = await callWithInjection(tabId, '__jobscriptJobPosting');
+  } catch (err) {
+    return { ok: false, error: 'JobScript cannot read this page.' };
+  }
+  if (!postings.length) return { ok: false, error: 'No job posting found on this page.' };
+  // Prefer the frame with the application form, then the longest description.
+  const posting = postings.sort((a, b) => (b.hasForm - a.hasForm) || b.description.length - a.description.length)[0];
+  const sid = crypto.randomUUID();
+  await chrome.storage.session.set({ ['tailor:' + sid]: { tabId, posting, createdAt: Date.now() } });
+  const tab = await chrome.tabs.get(tabId);
+  await chrome.tabs.create({ url: chrome.runtime.getURL('tailor/tailor.html?sid=' + sid), index: tab.index + 1, openerTabId: tabId });
+  return { ok: true };
+}
+
+async function tailorSession(sid) {
+  const key = 'tailor:' + String(sid || '');
+  return (await chrome.storage.session.get(key))[key] || null;
+}
+
+async function tailorWithAi(msg) {
+  const session = await tailorSession(msg.sid);
+  if (!session) return { ok: false, error: 'This tailoring session expired. Click Tailor & Fill again.' };
+  const apiKey = await JobScriptStorage.getApiKey();
+  if (!apiKey) return { ok: false, error: 'Add your Anthropic API key on the options page first.' };
+  if (!(await chrome.permissions.contains({ origins: [ANTHROPIC_ORIGIN] }))) {
+    return { ok: false, error: 'JobScript needs permission to reach api.anthropic.com.' };
+  }
+  const [settings, profile] = await Promise.all([JobScriptStorage.getAiSettings(), JobScriptStorage.getProfile()]);
+  return JobScriptAI.tailorResume({ apiKey, model: settings.model, profile, posting: session.posting });
+}
+
+async function fillWithTailored(msg) {
+  const session = await tailorSession(msg.sid);
+  if (!session) return { ok: false, error: 'This tailoring session expired. Click Tailor & Fill again.' };
+  if (typeof msg.tailoredId !== 'string' || !(await JobScriptStorage.getTailored(msg.tailoredId))) {
+    return { ok: false, error: 'Tailored resume not found.' };
+  }
+  let tab;
+  try {
+    tab = await chrome.tabs.get(session.tabId);
+  } catch (e) {
+    return { ok: false, error: 'The job tab was closed.' };
+  }
+  await chrome.tabs.update(tab.id, { active: true });
+  return fillTab(tab.id, { tailoredId: msg.tailoredId });
+}
+
 // Messages from our own content scripts carry sender.tab; page scripts can't send these at all.
 function isOwnContentScript(sender) {
   return sender.id === chrome.runtime.id && !!sender.tab && Number.isInteger(sender.tab.id) && typeof sender.url === 'string';
@@ -147,6 +218,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!isTrustedSender(sender, 'popup/') || !Number.isInteger(msg.tabId)) return false;
     fillTab(msg.tabId).then(sendResponse);
     return true; // keep the channel open for the async response
+  }
+  if (msg.type === 'tailor-tab') {
+    if (!isTrustedSender(sender, 'popup/') || !Number.isInteger(msg.tabId)) return false;
+    startTailor(msg.tabId).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'tailor-start') {
+    if (!isOwnContentScript(sender)) return false;
+    startTailor(sender.tab.id).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'ai-tailor') {
+    if (!isTrustedSender(sender, 'tailor/')) return false;
+    tailorWithAi(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Something went wrong asking Claude.' }));
+    return true;
+  }
+  if (msg.type === 'tailor-fill') {
+    if (!isTrustedSender(sender, 'tailor/')) return false;
+    fillWithTailored(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not fill the application.' }));
+    return true;
   }
   if (msg.type === 'ai-parse-resume') {
     if (!isTrustedSender(sender, 'options/')) return false;
