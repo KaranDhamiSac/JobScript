@@ -2,7 +2,7 @@
 
 A Chrome/Firefox extension (Manifest V3) that autofills job applications on Greenhouse and Lever from a saved profile. It never submits; you review and submit yourself.
 
-See [PRIVACY.md](PRIVACY.md) for what JobScript stores and sends (it stores locally and sends nothing).
+See [PRIVACY.md](PRIVACY.md) for what JobScript stores and sends. Everything stays local unless you turn on the optional AI answers, which send specific data to Anthropic with your own API key.
 
 ## Packaging for the stores
 

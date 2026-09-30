@@ -39,7 +39,8 @@
     .toolbar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
     .toolbar label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
     .toolbar .spacer { flex: 1; }
-    .list { overflow-y: auto; padding: 4px 0 8px; }
+    .body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0 8px; }
     .cat { margin-top: 4px; }
     .cat > button { width: 100%; display: flex; align-items: center; gap: 6px; padding: 6px 12px; background: none; border: none; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; text-align: left; }
     .cat > button:hover { color: var(--fg); }
@@ -229,7 +230,11 @@
     body.appendChild(list);
     panel.appendChild(body);
 
+    // Re-rendering rebuilds the list; keep the user's scroll position.
+    const oldList = shadow.querySelector('.list');
+    const scrollTop = oldList ? oldList.scrollTop : 0;
     shadow.replaceChildren(panel);
+    list.scrollTop = scrollTop;
     if (!shadow.adoptedStyleSheets || !shadow.adoptedStyleSheets.length) {
       if (!shadow.querySelector('style')) shadow.prepend(el('style', { text: CSS }));
     }

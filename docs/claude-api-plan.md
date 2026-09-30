@@ -1,6 +1,6 @@
-# Plan: optional Claude API features (bring your own key)
+# Optional Claude API features (bring your own key)
 
-Not built yet. This is the plan for adding features such as a job-description match score or resume import without weakening JobScript's privacy and permission model.
+The AI answers fallback (lib/ai.js) follows this plan. Use it for any future Claude feature, such as a job-description match score.
 
 ## Key handling
 
@@ -17,8 +17,8 @@ Not built yet. This is the plan for adding features such as a job-description ma
 - Call the API only from `background.js`, never from content scripts or pages.
 - Declare `https://api.anthropic.com/*` under `optional_host_permissions`, not `host_permissions`. Request it with `chrome.permissions.request` when the user turns the feature on. Users who never enable it never grant it.
 - Browser calls need the `anthropic-dangerous-direct-browser-access: true` header. The key goes in `x-api-key`.
-- Add `https://api.anthropic.com` to `connect-src` in the extension-page CSP only when this ships.
-- Use the current recommended model ID at build time. Keep the model ID in one constant.
+- `connect-src` in the extension-page CSP allows `https://api.anthropic.com` (and nothing else external).
+- Model IDs live in one list (`AI_MODELS` in lib/storage.js). Structured outputs (`output_config.format`) return JSON; Sonnet 5.5 and Opus 5.5 reject forced `tool_choice`. Those two also send `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) so a safety decline is retried server-side.
 
 ## Consent and data minimisation
 

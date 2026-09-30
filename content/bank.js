@@ -27,7 +27,7 @@
   let shadow = null;
   let hideTimer = null;
   let active = null; // { f, getValue, onSaved, anchorEl }
-  let cleanups = [];
+  const watched = new Map(); // field id -> [cleanup functions]
 
   function ensureHost() {
     if (host && host.isConnected) return;
@@ -119,6 +119,9 @@
   // anchor() returns the element to place the prompt under.
   function watch(f, { getValue, anchor, onUserValue, onSaved }) {
     if (!eligible(f)) return;
+    unwatch(f);
+    const cleanups = [];
+    watched.set(f.id, cleanups);
     const els = f.groupInputs || [f.el];
     const container = f.kind === 'combobox' ? anchor() : null;
     const handler = (e) => {
@@ -141,9 +144,16 @@
     }
   }
 
+  // Stop offering to save a field (e.g. once JobScript has filled it).
+  function unwatch(f) {
+    for (const c of watched.get(f.id) || []) c();
+    watched.delete(f.id);
+    if (active && active.f.id === f.id) hide();
+  }
+
   function reset() {
-    for (const c of cleanups) c();
-    cleanups = [];
+    for (const list of watched.values()) for (const c of list) c();
+    watched.clear();
     hide();
   }
 
@@ -152,5 +162,5 @@
     if (active && host && active.anchorEl.isConnected) position(active.anchorEl);
   }, { passive: true, capture: true });
 
-  globalThis.JobScriptBank = { watch, reset };
+  globalThis.JobScriptBank = { watch, unwatch, reset };
 })();

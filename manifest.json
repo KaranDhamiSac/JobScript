@@ -15,9 +15,14 @@
     "https://jobs.lever.co/*",
     "https://jobs.eu.lever.co/*"
   ],
+  "optional_host_permissions": [
+    "https://api.anthropic.com/*"
+  ],
   "background": {
     "service_worker": "background.js",
     "scripts": [
+      "lib/storage.js",
+      "lib/ai.js",
       "background.js"
     ]
   },
@@ -62,7 +67,7 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    "extension_pages": "default-src 'self'; script-src 'self'; connect-src 'self' https://api.anthropic.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   },
   "browser_specific_settings": {
     "gecko": {

@@ -817,7 +817,15 @@
 
   function suggestionBox(el) {
     const parent = el.parentElement;
-    return parent ? [...parent.querySelectorAll(SUGGESTION_BOX_SELECTOR)].find((n) => !n.contains(el)) : null;
+    if (!parent) return null;
+    // Skip form controls and anything carrying JobScript's own highlight classes
+    // ("jobscript-suggested" would otherwise match [class*="suggest"]).
+    return [...parent.querySelectorAll(SUGGESTION_BOX_SELECTOR)].find(
+      (n) =>
+        !n.contains(el) &&
+        !n.matches('input, select, textarea') &&
+        !(typeof n.className === 'string' && /\bjobscript-/.test(n.className))
+    ) || null;
   }
 
   function suggestionItems(box) {
@@ -939,6 +947,11 @@
     if (f.kind === 'file') return attachFile(f.el, resume);
     const value = resolveValue(f);
     if (!value) return false;
+    return applyValue(f, value);
+  }
+
+  // Put a resolved { text, hint } value into a field, whatever kind of widget it is.
+  async function applyValue(f, value) {
     switch (f.kind) {
       case 'select': return fillSelect(f.el, value);
       case 'radio':
@@ -1100,13 +1113,16 @@
       } catch (err) {
         console.warn('[JobScript] could not apply suggestion', f.label, err);
       }
-      if (ok) setStatus(f, 'filled', preview(currentValueText(f)));
-      else setStatus(f, 'needs', 'Could not fill this automatically');
+      if (ok) {
+        globalThis.JobScriptBank.unwatch(f);
+        setStatus(f, 'filled', preview(currentValueText(f)));
+      } else setStatus(f, 'needs', 'Could not fill this automatically');
       renderPanel();
       return ok;
     };
     f.accept = accept;
-    setStatus(f, 'suggested', draft ? (opts.detail || 'Draft') : preview(text), {
+    const source = opts && opts.source ? ' · ' + opts.source : '';
+    setStatus(f, 'suggested', draft ? (opts.detail || 'Draft') : preview(text) + source, {
       draft,
       actions: [
         { label: draft ? 'Insert' : 'Accept', primary: true, onClick: accept },
@@ -1277,17 +1293,149 @@
     stopWatching = stop;
   }
 
+  // ---------------------------------------------------------------------------
+  // AI fallback (off unless enabled on the options page). Questions JobScript couldn't answer
+  // are sent, via background.js, to Claude; answers come back only as suggestions you accept.
+
+  const DEFAULT_NOTE = 'Review every field before you submit. JobScript never submits.';
+  // Never asked of the AI: consent, legal attestations and signatures are yours to give.
+  const AI_EXCLUDE_LABEL = /consent|\bagree|acknowledg|certif|attest|signature|sign here|\bterms\b|privacy (policy|notice)|i understand|true and (accurate|correct)/i;
+
+  function aiCandidates() {
+    return [...registry.values()].filter(
+      (f) =>
+        f.el.isConnected &&
+        f.status === 'needs' &&
+        !['file', 'checkbox', 'date', 'month'].includes(f.kind) &&
+        f.category !== 'eeo' &&
+        f.label !== '(unlabeled field)' &&
+        !FM.sensitiveLabel.test(f.label) &&
+        !AI_EXCLUDE_LABEL.test(f.label)
+    );
+  }
+
+  // Options of a searchable dropdown, read by opening it briefly.
+  async function readComboOptions(f) {
+    await openCombobox(f.el);
+    const opts = await waitFor(() => {
+      const o = comboOptions(f.el);
+      return o.length ? o : null;
+    }, 600);
+    const texts = opts ? opts.map((o) => clean(o.textContent)).filter(Boolean).slice(0, 100) : [];
+    keyEvent(f.el, 'Escape', 27);
+    f.el.blur();
+    return texts;
+  }
+
+  async function aiQuestion(f) {
+    let kind = 'short';
+    let options = [];
+    if (f.kind === 'select' || f.kind === 'radio') {
+      kind = 'choice';
+      options = f.options;
+    } else if (f.kind === 'checkboxGroup') {
+      kind = 'multi';
+      options = f.options;
+    } else if (f.kind === 'combobox') {
+      kind = 'choice';
+      options = await readComboOptions(f);
+    } else if (f.kind === 'textarea' || f.el.maxLength > 300) {
+      kind = 'essay';
+    }
+    if ((kind === 'choice' || kind === 'multi') && !options.length) return null;
+    f.aiKind = kind;
+    return { id: String(f.id), question: f.label, kind, options, required: f.required };
+  }
+
+  async function prepareAiQuestions() {
+    const settings = await S.getAiSettings();
+    if (!settings.enabled) return null;
+    const questions = [];
+    for (const f of aiCandidates().slice(0, 25)) {
+      const q = await aiQuestion(f);
+      if (q) questions.push(q);
+    }
+    return questions.length ? questions : null;
+  }
+
+  function jobInfo() {
+    const site = FM.sites.find((s) => s.hosts.some((re) => re.test(location.hostname)));
+    let description = '';
+    for (const sel of (site && site.jobDescriptionSelectors) || []) {
+      const node = document.querySelector(sel);
+      if (node && clean(node.innerText).length > 200) {
+        description = node.innerText;
+        break;
+      }
+    }
+    if (!description) description = document.body.innerText;
+    const h1 = document.querySelector('h1, h2');
+    return {
+      jobTitle: h1 ? clean(h1.textContent) : document.title,
+      company: decodeURIComponent(location.pathname.split('/')[1] || location.hostname),
+      jobDescription: description.replace(/\n{3,}/g, '\n\n').slice(0, 15000),
+    };
+  }
+
+  async function askAi(questions) {
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: 'ai-answer', request: { questions, ...jobInfo() } });
+    } catch (e) {
+      res = { ok: false, error: 'Could not reach JobScript’s background script.' };
+    }
+    if (!session) return;
+    if (!res || !res.ok) {
+      session.note = 'Claude: ' + ((res && res.error) || 'no answer.');
+      renderPanel();
+      return;
+    }
+    let count = 0;
+    for (const a of res.answers) {
+      const f = registry.get(Number(a.id));
+      if (!f || f.status !== 'needs' || !f.el.isConnected) continue;
+      if (a.insufficient || (!a.answer && !a.choices.length)) {
+        setStatus(f, 'needs', 'Claude: not enough in your profile to answer');
+        continue;
+      }
+      const source = 'Claude' + (a.basis ? ': ' + a.basis : '');
+      if (f.aiKind === 'essay') {
+        suggest(f, a.answer, () => applyValue(f, { text: a.answer, hint: {} }), { draft: true, detail: 'Draft by ' + source });
+      } else if (f.aiKind === 'multi') {
+        suggest(
+          f,
+          a.choices.join(', '),
+          async () => {
+            let ok = true;
+            for (const c of a.choices) ok = (await applyValue(f, { text: c, hint: {} })) && ok;
+            return ok;
+          },
+          { source }
+        );
+      } else {
+        const text = f.aiKind === 'choice' ? a.choices[0] : a.answer;
+        suggest(f, text, () => applyValue(f, { text, hint: {} }), { source });
+      }
+      count++;
+    }
+    session.note = count
+      ? `Claude suggested ${count} answer${count === 1 ? '' : 's'}. Check each one before accepting; they come only from your profile and resume.`
+      : 'Claude didn’t find answers in your profile or resume.';
+    renderPanel();
+  }
+
   // Returns null when this frame has no form fields, so background.js can ignore it.
   async function fillPage() {
     if (running) return { ok: false, error: 'A fill is already running on this page.' };
     running = true;
+    let aiQuestions = null;
     try {
       const [profile, resume] = await Promise.all([S.getProfile(), S.getResume()]);
       const { root, site } = findRoot();
       clearHighlights();
       registry.clear();
       globalThis.JobScriptBank.reset();
-      session = { site, note: 'Review every field before you submit. JobScript never submits.' };
+      session = { site, note: DEFAULT_NOTE };
       await ensureEntries(root, profile);
 
       // Start watching before the pass, so fields revealed by our own answers
@@ -1301,9 +1449,16 @@
         return null;
       }
       renderPanel();
+      aiQuestions = await prepareAiQuestions();
+      if (aiQuestions) {
+        session.note = `Asking Claude about ${aiQuestions.length} question${aiQuestions.length === 1 ? '' : 's'}…`;
+        renderPanel();
+      }
       return summary();
     } finally {
       running = false;
+      // The API call can take a while; don't hold up the popup. Answers arrive as suggestions.
+      if (aiQuestions) askAi(aiQuestions);
     }
   }
 

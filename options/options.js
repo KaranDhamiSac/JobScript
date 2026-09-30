@@ -466,6 +466,69 @@ importBtn.addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// AI answers (optional). Saved immediately, separately from the profile. The key is never
+// shown again after saving, never exported, and only the background script sends it.
+
+const ANTHROPIC_ORIGIN = { origins: ['https://api.anthropic.com/*'] };
+const aiEnabled = document.getElementById('ai-enabled');
+const aiKey = document.getElementById('ai-key');
+const aiModel = document.getElementById('ai-model');
+const aiKeySave = document.getElementById('ai-key-save');
+const aiKeyRemove = document.getElementById('ai-key-remove');
+const aiStatus = document.getElementById('ai-status');
+
+for (const m of S.AI_MODELS) aiModel.append(new Option(m.label, m.id));
+
+async function renderAi(message) {
+  const [settings, key] = await Promise.all([S.getAiSettings(), S.getApiKey()]);
+  aiEnabled.checked = settings.enabled;
+  aiModel.value = settings.model;
+  aiKey.value = '';
+  aiKey.placeholder = key ? `Saved key ending in …${key.slice(-4)}` : 'sk-ant-…';
+  aiKeyRemove.hidden = !key;
+  aiStatus.textContent = message || (settings.enabled && !key ? 'Add your API key to use AI answers.' : '');
+}
+
+aiEnabled.addEventListener('change', () => {
+  if (aiEnabled.checked) {
+    // Must be called straight from the click; browsers only allow permission prompts then.
+    chrome.permissions.request(ANTHROPIC_ORIGIN).then(async (granted) => {
+      if (!granted) {
+        aiEnabled.checked = false;
+        aiStatus.textContent = 'AI answers stay off: access to api.anthropic.com wasn’t granted.';
+        return;
+      }
+      await S.saveAiSettings({ enabled: true, model: aiModel.value });
+      renderAi('AI answers are on.');
+    });
+  } else {
+    S.saveAiSettings({ enabled: false, model: aiModel.value })
+      .then(() => chrome.permissions.remove(ANTHROPIC_ORIGIN))
+      .then(() => renderAi('AI answers are off. Nothing is sent to Anthropic.'));
+  }
+});
+
+aiModel.addEventListener('change', async () => {
+  const settings = await S.getAiSettings();
+  await S.saveAiSettings({ enabled: settings.enabled, model: aiModel.value });
+  renderAi('Model saved.');
+});
+
+aiKeySave.addEventListener('click', async () => {
+  const key = aiKey.value.trim();
+  if (!key) return renderAi('Paste your API key first.');
+  if (!/^sk-ant-[A-Za-z0-9_-]{10,}$/.test(key)) return renderAi('That doesn’t look like an Anthropic API key (they start with sk-ant-).');
+  await S.saveApiKey(key);
+  renderAi('Key saved.');
+});
+
+aiKeyRemove.addEventListener('click', async () => {
+  if (!confirm('Remove your saved Anthropic API key?')) return;
+  await S.clearApiKey();
+  renderAi('Key removed.');
+});
+
+// ---------------------------------------------------------------------------
 // Export / import
 
 document.getElementById('export').addEventListener('click', async () => {
@@ -505,6 +568,7 @@ async function load() {
   renderBasics();
   Object.keys(LISTS).forEach(renderList);
   await renderResume();
+  await renderAi();
   setDirty(false);
 }
 

@@ -145,6 +145,36 @@
 
     <section id="import-review" hidden></section>
 
+    <section id="ai-section">
+      <h2>AI answers (optional)</h2>
+      <p class="muted">For questions JobScript can’t fill from your profile, Claude can suggest answers. Suggestions are never typed in until you accept them, and you pay Anthropic directly with your own API key.</p>
+      <div class="warning" role="note">
+        <strong>What turning this on sends to Anthropic</strong>
+        <p>When you click Fill, for each question JobScript couldn’t answer, it sends Anthropic:</p>
+        <ul>
+          <li>the question and its answer options</li>
+          <li>your profile: name, city, links, work authorization, skills, work history, education and saved answers</li>
+          <li>your resume text, with email, phone and street address removed</li>
+          <li>the job title and description from the page</li>
+        </ul>
+        <p>It never sends your email, phone, street address, ZIP, self-ID (EEO) answers, or questions about consent, signatures, SSN or date of birth. Anthropic’s API terms apply.</p>
+      </div>
+      <label class="check"><input id="ai-enabled" type="checkbox"> Turn on AI answers</label>
+      <div class="grid">
+        <label>Anthropic API key
+          <input id="ai-key" type="password" autocomplete="off" spellcheck="false" placeholder="sk-ant-…">
+        </label>
+        <label>Model
+          <select id="ai-model"></select>
+        </label>
+      </div>
+      <div class="row">
+        <button id="ai-key-save" type="button" class="secondary">Save key</button>
+        <button id="ai-key-remove" type="button" class="secondary danger" hidden>Remove key</button>
+        <span id="ai-status" class="muted" role="status"></span>
+      </div>
+    </section>
+
     <section>
       <h2>Backup</h2>
       <p class="muted">Export includes your profile and resume. Import replaces what is saved now.</p>

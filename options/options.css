@@ -190,3 +190,15 @@ h3 { font-size: 14px; margin: 16px 0 8px; }
 #import-review .entry { margin-bottom: 10px; }
 #import-review .row { margin-top: 16px; }
 span.check { display: inline-flex; align-items: center; gap: 8px; }
+
+.warning {
+  border: 1px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.08);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  font-size: 13px;
+}
+.warning p, .warning ul { margin: 6px 0; }
+.warning ul { padding-left: 20px; }
+#ai-section .grid { margin: 12px 0; }
