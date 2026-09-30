@@ -253,15 +253,15 @@ resumeInput.addEventListener('change', async () => {
     alert('Please choose a PDF file.');
     return;
   }
+  if (file.size > S.MAX_RESUME_BYTES) {
+    alert('That PDF is larger than 5 MB. Please choose a smaller file.');
+    return;
+  }
   resumeStatus.textContent = 'Saving…';
   try {
-    await S.saveResume({
-      name: file.name,
-      type: 'application/pdf',
-      size: file.size,
-      data: await readAsBase64(file),
-      savedAt: new Date().toISOString(),
-    });
+    await S.saveResume(
+      S.sanitizeResume({ name: file.name, data: await readAsBase64(file), savedAt: new Date().toISOString() })
+    );
   } catch (err) {
     alert('Could not save the resume: ' + (err.message || err));
   }

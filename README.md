@@ -2,6 +2,16 @@
 
 A Chrome/Firefox extension (Manifest V3) that autofills job applications on Greenhouse and Lever from a saved profile. It never submits; you review and submit yourself.
 
+See [PRIVACY.md](PRIVACY.md) for what JobScript stores and sends (it stores locally and sends nothing).
+
+## Packaging for the stores
+
+```sh
+python3 scripts/package.py
+```
+
+This writes `dist/jobscript-chrome-<version>.zip` and `dist/jobscript-firefox-<version>.zip`. They contain only the runtime files (`manifest.json`, `background.js`, `lib/`, `content/`, `popup/`, `options/`). Each manifest is tailored to its browser: Chrome's has no Firefox-only keys, and Firefox's uses an event page. `dev/`, `docs/`, `scripts/` and the Markdown files are never included. `dist/` is gitignored.
+
 ## Testing
 
 The `dev/` folder holds test-only tools. The extension never loads anything from it. If you zip the extension for the Chrome Web Store or Firefox Add-ons, leave `dev/` out.

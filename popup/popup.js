@@ -39,6 +39,7 @@ fillBtn.addEventListener('click', async () => {
   fillBtn.textContent = 'Filling…';
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (!tab || !Number.isInteger(tab.id)) throw new Error('No active tab.');
     const res = await chrome.runtime.sendMessage({ type: 'fill-tab', tabId: tab.id });
     if (!res || !res.ok) {
       showResult('err', 'Nothing filled', (res && res.error) || 'Something went wrong.');

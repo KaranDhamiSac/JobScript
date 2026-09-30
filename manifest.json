@@ -3,9 +3,11 @@
   "name": "JobScript",
   "version": "0.1.0",
   "description": "Autofill job applications on Greenhouse and Lever from your saved profile. Never submits for you.",
-  "permissions": ["storage", "unlimitedStorage", "scripting", "activeTab"],
+  "permissions": ["storage", "scripting", "activeTab"],
   "host_permissions": [
-    "https://*.greenhouse.io/*",
+    "https://boards.greenhouse.io/*",
+    "https://job-boards.greenhouse.io/*",
+    "https://job-boards.eu.greenhouse.io/*",
     "https://jobs.lever.co/*",
     "https://jobs.eu.lever.co/*"
   ],
@@ -33,7 +35,9 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*.greenhouse.io/*",
+        "https://boards.greenhouse.io/*",
+        "https://job-boards.greenhouse.io/*",
+        "https://job-boards.eu.greenhouse.io/*",
         "https://jobs.lever.co/*",
         "https://jobs.eu.lever.co/*"
       ],
@@ -43,10 +47,13 @@
       "run_at": "document_idle"
     }
   ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+  },
   "browser_specific_settings": {
     "gecko": {
       "id": "jobscript@jobscript.local",
-      "strict_min_version": "121.0"
+      "strict_min_version": "128.0"
     }
   }
 }

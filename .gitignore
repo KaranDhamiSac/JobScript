@@ -6,3 +6,4 @@
 node_modules/
 web-ext-artifacts/
 dev/bundle.js
+dist/

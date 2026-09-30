@@ -278,9 +278,25 @@
       }
     }
 
-    return out.filter((f) =>
-      (f.groupInputs || [f.el]).some((e) => isVisible(e) || isVisible(e.closest('label') || e.parentElement))
-    );
+    return out.filter((f) => {
+      if (f.kind === 'text' || f.kind === 'textarea' || f.kind === 'select' || f.kind === 'date' || f.kind === 'month') {
+        return isReallyVisible(f.el);
+      }
+      return (f.groupInputs || [f.el]).some((e) => isVisible(e) || isVisible(e.closest('label') || e.parentElement));
+    });
+  }
+
+  // Stricter check for fields that receive typed profile data, so a page can't collect it through
+  // fields you can't see (transparent, tiny, or positioned off-screen).
+  function isReallyVisible(el) {
+    if (!isVisible(el)) return false;
+    const r = el.getBoundingClientRect();
+    if (r.width < 4 || r.height < 4) return false;
+    if (r.right + window.scrollX <= 0 || r.bottom + window.scrollY <= 0) return false;
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      if (parseFloat(getComputedStyle(n).opacity) < 0.05) return false;
+    }
+    return true;
   }
 
   function headingAbove(el, headings) {
