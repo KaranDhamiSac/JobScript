@@ -39,6 +39,13 @@
       </section>
 
       <section>
+        <h2>Skills</h2>
+        <label>Skills, separated by commas
+          <textarea data-key="skills" placeholder="Python, SQL, React, Figma"></textarea>
+        </label>
+      </section>
+
+      <section>
         <h2>Work eligibility</h2>
         <div class="grid">
           <label>Authorized to work in the US?
@@ -131,8 +138,12 @@
         <label class="button secondary" for="resume-input" id="resume-choose">Upload PDF</label>
         <input id="resume-input" type="file" accept="application/pdf,.pdf" hidden>
         <button id="resume-remove" type="button" class="secondary danger" hidden>Remove</button>
+        <button id="resume-import" type="button" class="secondary" hidden>Import info from resume</button>
       </div>
+      <p id="import-status" class="muted" role="status"></p>
     </section>
+
+    <section id="import-review" hidden></section>
 
     <section>
       <h2>Backup</h2>
@@ -151,6 +162,7 @@
   </footer>
 
   <script src="../lib/storage.js"></script>
-  <script src="options.js"></script>
+  <script src="../lib/fieldMap.js"></script>
+  <script type="module" src="options.js"></script>
 </body>
 </html>

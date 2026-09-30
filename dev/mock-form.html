@@ -8,13 +8,14 @@ const store = { profile: {
   gender:'Decline to answer', race:'Asian', veteran:'I am not a protected veteran', disability:'Decline to answer',
   workHistory:[{employer:'Acme',title:'Intern',startDate:'2024-06',current:true},{employer:'Beta',title:'Tutor',startDate:'2023-01',endDate:'2024-05'}],
   education:[{school:'Sac State',degree:'BS',major:'Computer Science',startDate:'2022-08',gradDate:'2026-05'}],
-  customAnswers:[{question:'How did you hear about us?', answer:'LinkedIn'}] },
+  customAnswers:[{question:'How did you hear about us?', answer:'LinkedIn'}], skills:'Python, SQL, React' },
   resume: { name:'resume.pdf', type:'application/pdf', size:4, data: btoa('%PDF'), savedAt: new Date().toISOString() } };
 window.chrome = { storage: { local: { get: async k => ({[k]: store[k]}), set: async o => Object.assign(store,o), remove: async k => delete store[k] } } };
 </script>
 <script src="../lib/storage.js"></script>
 <script src="../lib/fieldMap.js"></script>
 <script src="../content/panel.js"></script>
+<script src="../content/bank.js"></script>
 <script src="../content/autofill.js"></script>
 </head><body>
 <form id="application-form">
@@ -33,6 +34,9 @@ window.chrome = { storage: { local: { get: async k => ({[k]: store[k]}), set: as
 <ul><li><label><input type="radio" name="spons" value="y">Yes</label></li><li><label><input type="radio" name="spons" value="n">No</label></li></ul></div>
 <label for="q2">How did you hear about us?</label><input id="q2">
 <label for="q3">Why do you want to work here? *</label><textarea id="q3" required></textarea>
+<label for="skills_q">Technical skills</label><textarea id="skills_q"></textarea>
+<label for="yoe">How many years of experience do you have?</label><input id="yoe">
+<label for="fav">What is your favorite programming language? *</label><input id="fav" required>
 <h3>Education</h3>
 <div id="edu">
 <label for="school--0">School</label><input id="school--0">

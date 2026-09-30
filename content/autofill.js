@@ -1049,9 +1049,10 @@
     const fields = [...registry.values()]
       .filter((f) => f.el.isConnected)
       .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+    const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft);
     globalThis.JobScriptPanel.render({
       note: session.note,
-      toolbarActions: session.toolbarActions || [],
+      toolbarActions: hasSuggestions ? [{ label: 'Accept all', onClick: acceptAllSuggestions }] : [],
       onSelect: focusField,
       items: fields.map((f) => ({
         id: f.id,
@@ -1088,12 +1089,82 @@
   // Elements already processed by a pass, so late-field passes only touch new fields.
   const handled = new WeakSet();
 
+  // A value we're not sure enough about to type in: shown in the panel with Accept / Dismiss.
+  // apply() fills the field and resolves true on success.
+  function suggest(f, text, apply, opts) {
+    const draft = opts && opts.draft ? text : '';
+    const accept = async () => {
+      let ok = false;
+      try {
+        ok = await apply();
+      } catch (err) {
+        console.warn('[JobScript] could not apply suggestion', f.label, err);
+      }
+      if (ok) setStatus(f, 'filled', preview(currentValueText(f)));
+      else setStatus(f, 'needs', 'Could not fill this automatically');
+      renderPanel();
+      return ok;
+    };
+    f.accept = accept;
+    setStatus(f, 'suggested', draft ? (opts.detail || 'Draft') : preview(text), {
+      draft,
+      actions: [
+        { label: draft ? 'Insert' : 'Accept', primary: true, onClick: accept },
+        {
+          label: 'Dismiss',
+          onClick: () => {
+            f.accept = null;
+            setStatus(f, 'needs', 'Suggestion dismissed');
+            watchBank(f);
+            renderPanel();
+          },
+        },
+      ],
+    });
+  }
+
+  // Offer "Save to bank" when you answer a field JobScript left for you.
+  function watchBank(f) {
+    globalThis.JobScriptBank.watch(f, {
+      getValue: () => currentValueText(f),
+      anchor: () => highlightTarget(f),
+      onUserValue: () => {
+        setStatus(f, 'filled', 'Filled by you', { noHighlight: true });
+        renderPanel();
+      },
+      onSaved: () => {
+        setStatus(f, 'filled', 'Filled by you · saved to bank', { noHighlight: true });
+        renderPanel();
+      },
+    });
+  }
+
+  async function acceptAllSuggestions() {
+    for (const f of [...registry.values()]) {
+      if (f.status === 'suggested' && !f.draft && f.accept && f.el.isConnected) await f.accept();
+    }
+  }
+
+  // The value a match would put in, for showing as a suggestion.
+  function previewValue(f) {
+    if (f.kind === 'file') return f.match.raw ? 'Your resume' : '';
+    const v = resolveValue(f);
+    return v ? v.text : '';
+  }
+
   // Fill one field and record its status.
   async function processField(f, resume) {
     f.prefilled = !f.empty;
     if (f.prefilled) {
       setStatus(f, 'filled', 'Already had a value', { noHighlight: true });
       return 'already';
+    }
+    if (f.match && f.match.c && f.match.c.rule.confidence === 'medium') {
+      const text = previewValue(f);
+      if (text) {
+        suggest(f, text, () => applyMatch(f, resume));
+        return 'suggested';
+      }
     }
     let ok = false;
     if (f.match) {
@@ -1109,6 +1180,7 @@
     }
     const why = f.match && !f.match.raw && f.kind !== 'file' ? 'Not in your profile' : '';
     setStatus(f, 'needs', why);
+    watchBank(f);
     return 'needs';
   }
 
@@ -1214,6 +1286,7 @@
       const { root, site } = findRoot();
       clearHighlights();
       registry.clear();
+      globalThis.JobScriptBank.reset();
       session = { site, note: 'Review every field before you submit. JobScript never submits.' };
       await ensureEntries(root, profile);
 

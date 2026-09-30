@@ -35,7 +35,10 @@ def collect_files():
         if path.is_file():
             files.append(path)
         elif path.is_dir():
-            files.extend(p for p in sorted(path.rglob('*')) if p.is_file() and not p.name.startswith('.'))
+            files.extend(
+                p for p in sorted(path.rglob('*'))
+                if p.is_file() and not p.name.startswith('.') and p.suffix != '.md'
+            )
         else:
             raise SystemExit(f'Missing extension path: {entry}')
     return files

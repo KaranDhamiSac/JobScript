@@ -4,7 +4,7 @@
 // New features (e.g. a future job-description match score) can add their own message
 // types to the onMessage router below. Every handler must go through isTrustedSender().
 
-const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'content/panel.js', 'content/autofill.js'];
+const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js'];
 const CONTENT_CSS = ['content/autofill.css'];
 
 // Calls the fill in every frame that has the content script. Frames without it return null.

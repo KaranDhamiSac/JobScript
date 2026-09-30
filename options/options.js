@@ -1,3 +1,6 @@
+// Loaded as a module (see options.html) so it can import the resume parser and pdf.js.
+import { parseResume } from './resume-parser.js';
+
 const S = JobScriptStorage;
 
 // Field definitions for the repeatable lists. `type` is an <input> type, 'textarea' or 'checkbox'.
@@ -42,6 +45,8 @@ const LISTS = {
 
 let profile = null;
 let dirty = false;
+// Resume text from an import you applied; written to storage only when you click Save.
+let pendingResumeText = null;
 
 const saveBtn = document.getElementById('save');
 const saveStatus = document.getElementById('save-status');
@@ -190,6 +195,10 @@ for (const btn of document.querySelectorAll('[data-add]')) {
 
 async function save() {
   await S.saveProfile(profile);
+  if (pendingResumeText !== null) {
+    await S.saveResumeText(pendingResumeText);
+    pendingResumeText = null;
+  }
   setDirty(false);
   saveStatus.textContent = 'Saved';
   setTimeout(() => {
@@ -217,6 +226,9 @@ const resumeStatus = document.getElementById('resume-status');
 const resumeInput = document.getElementById('resume-input');
 const resumeChoose = document.getElementById('resume-choose');
 const resumeRemove = document.getElementById('resume-remove');
+const importBtn = document.getElementById('resume-import');
+const importStatus = document.getElementById('import-status');
+const reviewBox = document.getElementById('import-review');
 
 function formatSize(bytes) {
   return bytes >= 1024 * 1024 ? (bytes / 1024 / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
@@ -229,10 +241,12 @@ async function renderResume() {
     resumeStatus.textContent = `${resume.name} (${formatSize(resume.size)}, saved ${when})`;
     resumeChoose.textContent = 'Replace PDF';
     resumeRemove.hidden = false;
+    importBtn.hidden = false;
   } else {
     resumeStatus.textContent = 'No resume saved.';
     resumeChoose.textContent = 'Upload PDF';
     resumeRemove.hidden = true;
+    importBtn.hidden = true;
   }
 }
 
@@ -262,6 +276,7 @@ resumeInput.addEventListener('change', async () => {
     await S.saveResume(
       S.sanitizeResume({ name: file.name, data: await readAsBase64(file), savedAt: new Date().toISOString() })
     );
+    importStatus.textContent = 'Saved. Click "Import info from resume" to fill your profile from it.';
   } catch (err) {
     alert('Could not save the resume: ' + (err.message || err));
   }
@@ -269,9 +284,185 @@ resumeInput.addEventListener('change', async () => {
 });
 
 resumeRemove.addEventListener('click', async () => {
-  if (!confirm('Remove the saved resume?')) return;
+  if (!confirm('Remove the saved resume and its imported text?')) return;
   await S.clearResume();
+  pendingResumeText = null;
+  closeReview();
   renderResume();
+});
+
+// ---------------------------------------------------------------------------
+// Import info from resume: parse locally, review, then apply to the form (still unsaved).
+
+const CONTACT_FIELDS = [
+  ['firstName', 'First name'], ['lastName', 'Last name'], ['email', 'Email'], ['phone', 'Phone'],
+  ['address', 'Street address'], ['city', 'City'], ['state', 'State'], ['zip', 'ZIP'],
+  ['linkedin', 'LinkedIn URL'], ['github', 'GitHub URL'], ['portfolio', 'Portfolio URL'],
+];
+
+function h(tag, props, children) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === 'text') n.textContent = v;
+    else if (k === 'class') n.className = v;
+    else if (k === 'checked' || k === 'value') n[k] = v;
+    else n.setAttribute(k, v);
+  }
+  for (const c of children || []) if (c) n.append(c);
+  return n;
+}
+
+function closeReview() {
+  reviewBox.hidden = true;
+  reviewBox.replaceChildren();
+}
+
+function sameEntry(a, b, keys) {
+  return keys.every((k) => String(a[k] || '').trim().toLowerCase() === String(b[k] || '').trim().toLowerCase());
+}
+
+// One checkbox + editable fields per parsed list entry. Returns a getter for the edited entry.
+function reviewEntry(container, entry, fields, checked, heading) {
+  const box = h('input', { type: 'checkbox', checked });
+  const card = h('div', { class: 'entry' }, [
+    h('label', { class: 'check' }, [box, document.createTextNode(heading)]),
+  ]);
+  const grid = h('div', { class: 'grid' });
+  const inputs = {};
+  for (const f of fields) {
+    let input;
+    if (f.type === 'textarea') input = h('textarea', { value: entry[f.key] || '' });
+    else if (f.type === 'checkbox') input = h('input', { type: 'checkbox', checked: !!entry[f.key] });
+    else input = h('input', { type: f.type || 'text', value: entry[f.key] || '' });
+    inputs[f.key] = input;
+    grid.append(
+      f.type === 'checkbox'
+        ? h('label', { class: 'check' }, [input, document.createTextNode(f.label)])
+        : h('label', { class: f.wide ? 'wide' : '' }, [document.createTextNode(f.label), input])
+    );
+  }
+  card.append(grid);
+  container.append(card);
+  return () => {
+    if (!box.checked) return null;
+    const out = {};
+    for (const f of fields) out[f.key] = f.type === 'checkbox' ? inputs[f.key].checked : inputs[f.key].value.trim();
+    return out;
+  };
+}
+
+function showReview(parsed, lines) {
+  reviewBox.replaceChildren();
+  reviewBox.hidden = false;
+  reviewBox.append(
+    h('h2', { text: 'Review imported info' }),
+    h('p', {
+      class: 'muted',
+      text: 'Parsed on this device from your resume. Check what to keep and fix anything that looks wrong. Nothing is saved until you click Apply and then Save profile.',
+    })
+  );
+
+  const getters = { contact: [], workHistory: [], education: [], skills: null };
+
+  const contactGrid = h('div', { class: 'grid' });
+  for (const [key, label] of CONTACT_FIELDS) {
+    const value = parsed.contact[key];
+    if (!value) continue;
+    const current = profile[key] || '';
+    const box = h('input', { type: 'checkbox', checked: !current });
+    const input = h('input', { type: 'text', value });
+    contactGrid.append(
+      h('label', {}, [
+        h('span', { class: 'check' }, [box, document.createTextNode(label)]),
+        input,
+        current ? h('span', { class: 'muted small', text: `Current: ${current}` }) : null,
+      ])
+    );
+    getters.contact.push(() => (box.checked && input.value.trim() ? [key, input.value.trim()] : null));
+  }
+  if (getters.contact.length) reviewBox.append(h('h3', { text: 'Contact' }), contactGrid);
+
+  const lists = [
+    ['workHistory', 'Work history', (e) => [e.title, e.employer].filter(Boolean).join(' at ') || 'Job', ['employer', 'title']],
+    ['education', 'Education', (e) => e.school || e.degree || 'School', ['school', 'degree']],
+  ];
+  for (const [key, title, heading, dupKeys] of lists) {
+    if (!parsed[key].length) continue;
+    const container = h('div', { class: 'list' });
+    reviewBox.append(h('h3', { text: title }), container);
+    for (const entry of parsed[key]) {
+      const duplicate = profile[key].some((e) => sameEntry(e, entry, dupKeys));
+      const label = heading(entry) + (duplicate ? ' (already in your profile)' : '');
+      getters[key].push(reviewEntry(container, entry, LISTS[key].fields, !duplicate, label));
+    }
+  }
+
+  if (parsed.skills) {
+    const box = h('input', { type: 'checkbox', checked: true });
+    const input = h('textarea', { value: parsed.skills });
+    reviewBox.append(
+      h('h3', { text: 'Skills' }),
+      h('label', {}, [h('span', { class: 'check' }, [box, document.createTextNode('Add to my skills')]), input])
+    );
+    getters.skills = () => (box.checked ? input.value : '');
+  }
+
+  const found = getters.contact.length + getters.workHistory.length + getters.education.length + (getters.skills ? 1 : 0);
+  if (!found) reviewBox.append(h('p', { text: 'JobScript couldn’t pick out any details. You can still fill your profile by hand.' }));
+
+  const apply = h('button', { type: 'button', class: 'primary', text: 'Apply to profile' });
+  const cancel = h('button', { type: 'button', class: 'secondary', text: 'Cancel' });
+  reviewBox.append(h('div', { class: 'row' }, [apply, cancel]));
+  cancel.addEventListener('click', closeReview);
+  apply.addEventListener('click', () => {
+    for (const get of getters.contact) {
+      const pair = get();
+      if (pair) profile[pair[0]] = pair[1];
+    }
+    const byRecent = (dateKey) => (a, b) =>
+      (b.current ? 1 : 0) - (a.current ? 1 : 0) || String(b[dateKey] || '').localeCompare(String(a[dateKey] || ''));
+    for (const [key, dateKey] of [['workHistory', 'startDate'], ['education', 'gradDate']]) {
+      const added = getters[key].map((g) => g()).filter(Boolean).map((e) => Object.assign(LISTS[key].blank(), e));
+      if (added.length) profile[key] = [...profile[key], ...added].sort(byRecent(dateKey));
+    }
+    if (getters.skills) {
+      const merged = new Map();
+      for (const s of [...String(profile.skills || '').split(','), ...getters.skills().split(',')]) {
+        const t = s.trim();
+        if (t && !merged.has(t.toLowerCase())) merged.set(t.toLowerCase(), t);
+      }
+      profile.skills = [...merged.values()].join(', ');
+    }
+    pendingResumeText = lines.join('\n');
+    renderBasics();
+    Object.keys(LISTS).forEach(renderList);
+    closeReview();
+    setDirty(true);
+    importStatus.textContent = 'Applied. Review your profile below, then click Save profile.';
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+  reviewBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+importBtn.addEventListener('click', async () => {
+  const resume = await S.getResume();
+  if (!resume) return;
+  importBtn.disabled = true;
+  importStatus.textContent = 'Reading your resume on this device…';
+  try {
+    const { extractResumeLines } = await import('./resume-import.js');
+    const lines = await extractResumeLines(resume.data);
+    if (!lines.length) {
+      importStatus.textContent = 'No text found in this PDF. It may be a scanned image; fill your profile by hand.';
+      return;
+    }
+    importStatus.textContent = '';
+    showReview(parseResume(lines), lines);
+  } catch (err) {
+    importStatus.textContent = 'Could not read this PDF: ' + (err.message || err);
+  } finally {
+    importBtn.disabled = false;
+  }
 });
 
 // ---------------------------------------------------------------------------

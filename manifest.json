@@ -51,6 +51,7 @@
         "lib/storage.js",
         "lib/fieldMap.js",
         "content/panel.js",
+        "content/bank.js",
         "content/autofill.js"
       ],
       "css": [

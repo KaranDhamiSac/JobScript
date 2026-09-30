@@ -184,3 +184,9 @@ button, .button {
 @media (max-width: 520px) {
   .grid { grid-template-columns: 1fr; }
 }
+
+h3 { font-size: 14px; margin: 16px 0 8px; }
+.small { font-size: 12px; font-weight: 400; }
+#import-review .entry { margin-bottom: 10px; }
+#import-review .row { margin-top: 16px; }
+span.check { display: inline-flex; align-items: center; gap: 8px; }
