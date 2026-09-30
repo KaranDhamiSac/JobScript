@@ -316,6 +316,11 @@
     for (const [key, sec] of entries) {
       if (sec.attrPatterns.some((re) => re.test(attrs))) return key;
     }
+    // Numbered labels ("Reference 2 Phone") mark a section even without a heading.
+    const label = labelText(el);
+    for (const [key, sec] of entries) {
+      if (sec.labelPatterns && sec.labelPatterns.some((re) => re.test(label))) return key;
+    }
     for (let n = el.parentElement, d = 0; n && n !== root && d < 8; n = n.parentElement, d++) {
       const s = (n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : '');
       for (const [key, sec] of entries) {
@@ -568,6 +573,9 @@
     for (const f of fields) {
       f.desc = describe(f);
       f.section = sectionOf(f.el, root, headings);
+      // "Reference 2 Phone": once the section is known, the prefix is noise for matching.
+      const sec = f.section && FM.sections[f.section];
+      if (sec && sec.labelPatterns) for (const re of sec.labelPatterns) f.desc.label = clean(f.desc.label.replace(re, ' '));
       f.required = isRequired(f);
       f.empty = isEmpty(f);
       f.datePart = detectDatePart(f.desc);
@@ -1410,6 +1418,7 @@
         f.status === 'needs' &&
         !['file', 'checkbox', 'date', 'month'].includes(f.kind) &&
         f.category !== 'eeo' &&
+        f.category !== 'references' &&
         f.label !== '(unlabeled field)' &&
         !FM.sensitiveLabel.test(f.label) &&
         !AI_EXCLUDE_LABEL.test(f.label)

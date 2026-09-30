@@ -8,7 +8,9 @@ const store = { profile: {
   gender:'Decline to answer', race:'Asian', veteran:'I am not a protected veteran', disability:'Decline to answer',
   workHistory:[{employer:'Acme',title:'Intern',startDate:'2024-06',current:true},{employer:'Beta',title:'Tutor',startDate:'2023-01',endDate:'2024-05'}],
   education:[{school:'Sac State',degree:'BS',major:'Computer Science',startDate:'2022-08',gradDate:'2026-05'}],
-  customAnswers:[{question:'How did you hear about us?', answer:'LinkedIn'}], skills:'Python, SQL, React' },
+  customAnswers:[{question:'How did you hear about us?', answer:'LinkedIn'}], skills:'Python, SQL, React',
+  references:[{name:'Pat Example', company:'Northwind Logistics', relationship:'Manager', email:'pat@example.com', phone:'5555550100', yearsKnown:'2', mayContact:'yes'},
+              {name:'Sam Sample', company:'Campus IT', relationship:'Supervisor', email:'sam@example.com', phone:'5555550101', yearsKnown:'1', mayContact:'no'}] },
   resume: { name:'resume.pdf', type:'application/pdf', size:4, data: btoa('%PDF'), savedAt: new Date().toISOString() } };
 window.chrome = { storage: { local: { get: async k => ({[k]: store[k]}), set: async o => Object.assign(store,o), remove: async k => delete store[k] } } };
 </script>
@@ -52,6 +54,9 @@ window.chrome = { storage: { local: { get: async k => ({[k]: store[k]}), set: as
 <label for="gender">Gender</label><select id="gender"><option value="">Select</option><option>Male</option><option>Female</option><option>I don't wish to answer</option></select>
 <label for="race">Race</label><select id="race"><option value="">Select</option><option>White</option><option>Asian</option><option>Decline To Self Identify</option></select>
 <label for="vet">Veteran Status</label><select id="vet"><option value="">Select</option><option>I am a protected veteran</option><option>I am not a protected veteran</option><option>I don't wish to answer</option></select>
+<h3>References</h3>
+<div id="refs"></div>
+<button type="button" id="addref">Add another reference</button>
 <button type="submit">Submit Application</button>
 </form>
 <script>
@@ -62,6 +67,17 @@ function addJob(){ const i=n++; document.getElementById('emp').insertAdjacentHTM
  '<label><input type="checkbox" id="current-role-'+i+'">Current role</label></div>'); }
 addJob();
 document.getElementById('addjob').onclick = addJob;
+let r = 0;
+function addRef(){ const i=r++; document.getElementById('refs').insertAdjacentHTML('beforeend',
+ '<div class="ref"><label for="ref-company-'+i+'">Company</label><input id="ref-company-'+i+'">'+
+ '<label for="ref-contact-'+i+'">Contact Person</label><input id="ref-contact-'+i+'">'+
+ '<label for="ref-rel-'+i+'">Relationship to Contact</label><input id="ref-rel-'+i+'">'+
+ '<label for="ref-email-'+i+'">Email</label><input id="ref-email-'+i+'" type="email">'+
+ '<label for="ref-phone-'+i+'">Phone Number</label><input id="ref-phone-'+i+'">'+
+ '<label for="ref-years-'+i+'">Years Known</label><input id="ref-years-'+i+'">'+
+ '<label for="ref-may-'+i+'">May we contact this reference?</label><select id="ref-may-'+i+'"><option value="">Select</option><option>Yes</option><option>No</option></select></div>'); }
+addRef();
+document.getElementById('addref').onclick = addRef;
 
 let once=false;
 document.getElementById('q1').addEventListener('change', () => setTimeout(() => {
