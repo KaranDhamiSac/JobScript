@@ -562,6 +562,26 @@
     return forms;
   }
 
+  function parseDegree(text) {
+    const lvl = FM.degrees.levels.find((l) => l.patterns.some((re) => re.test(text)));
+    const fld = FM.degrees.fields.find((f) => f.patterns.some((re) => re.test(text)));
+    return { level: lvl ? lvl.level : null, search: lvl ? lvl.search : null, field: fld ? fld.field : null };
+  }
+
+  // Index of the option whose degree level (and ideally field) matches, or -1.
+  function pickDegree(cands, value) {
+    const want = parseDegree(value);
+    if (!want.level) return -1;
+    let best = null;
+    for (const o of cands) {
+      const got = parseDegree(o.text);
+      if (got.level !== want.level) continue;
+      const score = !want.field || !got.field ? 2 : want.field === got.field ? 3 : 1;
+      if (!best || score > best.score) best = { i: o.i, score };
+    }
+    return best ? best.i : -1;
+  }
+
   // options: [{ text, value }]. Returns the index of the best option, or -1.
   function pickOption(options, value, hint) {
     const cands = options
@@ -581,6 +601,10 @@
     }
     for (const re of FM.valueAliases[value] || []) tests.push((o) => re.test(o.text));
     tests.push((o) => o.nt === target || o.nv === target);
+    if (hint.key === 'degree') {
+      const i = pickDegree(cands, value);
+      tests.push((o) => o.i === i);
+    }
     tests.push((o) => target.length >= 2 && o.nt.startsWith(target));
     tests.push((o) => o.nt.length >= 3 && target.startsWith(o.nt));
     tests.push((o) => target.length >= 3 && o.nt.includes(target));
@@ -683,7 +707,9 @@
 
     // Not in the initial list: type to search (handles long or remotely loaded lists).
     if (idx < 0) {
-      const search = value.hint.month ? FM.MONTHS[value.hint.month - 1] : value.text.slice(0, 40);
+      // Typing "BS" would filter out "Bachelor's Degree", so search degrees by level instead.
+      const degreeSearch = value.hint.key === 'degree' && parseDegree(value.text).search;
+      const search = value.hint.month ? FM.MONTHS[value.hint.month - 1] : degreeSearch || value.text.slice(0, 40);
       setNativeValue(el, search);
       el.dispatchEvent(new Event('input', { bubbles: true }));
       opts = await waitFor(() => {
@@ -792,6 +818,110 @@
     return { root: document.body, site: site ? site.name : location.hostname };
   }
 
+  // Elements already processed by a pass, so late-field passes only touch new fields.
+  const handled = new WeakSet();
+
+  // One fill pass over the form. With onlyNew, fields handled by an earlier pass are skipped.
+  async function runPass(root, profile, resume, onlyNew) {
+    const fields = analyze(root, profile);
+    const stats = { found: fields.length, filled: 0, total: 0, needsAttention: 0, alreadyFilled: 0 };
+    for (const f of fields) {
+      const els = f.groupInputs || [f.el];
+      if (onlyNew && els.every((e) => handled.has(e))) continue;
+      els.forEach((e) => handled.add(e));
+      if (!f.empty) {
+        stats.alreadyFilled++;
+        continue;
+      }
+      stats.total++;
+      let ok = false;
+      if (f.match) {
+        try {
+          ok = await applyMatch(f, resume);
+        } catch (err) {
+          console.warn('[JobScript] could not fill field', f.desc.labelRaw || f.el, err);
+        }
+      }
+      if (ok) {
+        stats.filled++;
+        mark(f, FILLED_CLASS);
+      } else if (f.required) {
+        stats.needsAttention++;
+        mark(f, NEEDS_CLASS);
+      }
+    }
+    return stats;
+  }
+
+  function summaryToast(totals, prefix) {
+    const note = totals.needsAttention ? ` · ${totals.needsAttention} required need you` : '';
+    toast(`${prefix} ${totals.filled} of ${totals.total} fields${note}. Review before submitting.`);
+  }
+
+  // After a fill, keep watching for a short while for fields that show up late: conditional
+  // questions revealed by an answer, sections that load after the page, or entries added by
+  // "Add another". Only fields that weren't there before get filled. Each late pass that fills
+  // something extends the window a little, so chains of conditional questions keep working.
+  const LATE_FIELD_WINDOW_MS = 15000;
+  const LATE_FIELD_EXTEND_MS = 5000;
+  let stopWatching = null;
+
+  function watchForLateFields(profile, resume, totals) {
+    if (stopWatching) stopWatching();
+    let deadline = Date.now() + LATE_FIELD_WINDOW_MS;
+    let debounce = null;
+    let endTimer = null;
+
+    const addsField = (records) =>
+      records.some((r) =>
+        [...r.addedNodes].some(
+          (n) => n.nodeType === 1 && (n.matches('input, select, textarea') || n.querySelector('input, select, textarea'))
+        )
+      );
+
+    const lateFill = async () => {
+      if (Date.now() > deadline) return stop();
+      if (running) {
+        debounce = setTimeout(lateFill, 400);
+        return;
+      }
+      running = true;
+      try {
+        const s = await runPass(findRoot().root, profile, resume, true);
+        if (!s.total) return;
+        for (const k of ['filled', 'total', 'needsAttention', 'alreadyFilled']) totals[k] += s[k];
+        if (s.filled) deadline = Math.max(deadline, Date.now() + LATE_FIELD_EXTEND_MS);
+        summaryToast(totals, `JobScript filled ${s.filled} more that appeared late. Now`);
+      } finally {
+        running = false;
+      }
+    };
+
+    const observer = new MutationObserver((records) => {
+      if (Date.now() > deadline) return stop();
+      if (!addsField(records)) return;
+      clearTimeout(debounce);
+      debounce = setTimeout(lateFill, 400);
+    });
+
+    const tick = () => {
+      if (Date.now() >= deadline) stop();
+      else endTimer = setTimeout(tick, deadline - Date.now());
+    };
+
+    function stop() {
+      observer.disconnect();
+      clearTimeout(debounce);
+      clearTimeout(endTimer);
+      if (stopWatching === stop) stopWatching = null;
+    }
+
+    // Watch the whole body: React sometimes re-mounts the form root itself.
+    observer.observe(document.body, { childList: true, subtree: true });
+    endTimer = setTimeout(tick, LATE_FIELD_WINDOW_MS);
+    stopWatching = stop;
+  }
+
   // Returns null when this frame has no form fields, so background.js can ignore it.
   async function fillPage() {
     if (running) return { ok: false, error: 'A fill is already running on this page.' };
@@ -802,39 +932,19 @@
       clearHighlights();
       await ensureEntries(root, profile);
 
-      const fields = analyze(root, profile);
-      if (!fields.length) return null;
+      // Start watching before the pass, so fields revealed by our own answers
+      // (e.g. a follow-up question) are caught too. Late passes wait until this one finishes.
+      const totals = { filled: 0, total: 0, needsAttention: 0, alreadyFilled: 0 };
+      watchForLateFields(profile, resume, totals);
 
-      let filled = 0;
-      let total = 0;
-      let needsAttention = 0;
-      let alreadyFilled = 0;
-      for (const f of fields) {
-        if (!f.empty) {
-          alreadyFilled++;
-          continue;
-        }
-        total++;
-        let ok = false;
-        if (f.match) {
-          try {
-            ok = await applyMatch(f, resume);
-          } catch (err) {
-            console.warn('[JobScript] could not fill field', f.desc.labelRaw || f.el, err);
-          }
-        }
-        if (ok) {
-          filled++;
-          mark(f, FILLED_CLASS);
-        } else if (f.required) {
-          needsAttention++;
-          mark(f, NEEDS_CLASS);
-        }
+      const s = await runPass(root, profile, resume, false);
+      if (!s.found) {
+        if (stopWatching) stopWatching();
+        return null;
       }
-
-      const note = needsAttention ? ` · ${needsAttention} required need you` : '';
-      toast(`JobScript filled ${filled} of ${total} fields${note}. Review before submitting.`);
-      return { ok: true, site, filled, total, needsAttention, alreadyFilled };
+      for (const k of ['filled', 'total', 'needsAttention', 'alreadyFilled']) totals[k] += s[k];
+      summaryToast(totals, 'JobScript filled');
+      return { ok: true, site, ...totals };
     } finally {
       running = false;
     }
