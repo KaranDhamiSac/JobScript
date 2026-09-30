@@ -138,8 +138,10 @@
         <label class="button secondary" for="resume-input" id="resume-choose">Upload PDF</label>
         <input id="resume-input" type="file" accept="application/pdf,.pdf" hidden>
         <button id="resume-remove" type="button" class="secondary danger" hidden>Remove</button>
-        <button id="resume-import" type="button" class="secondary" hidden>Re-import info from resume</button>
+        <button id="resume-import-ai" type="button" class="primary" hidden>Import with Claude</button>
+        <button id="resume-import" type="button" class="secondary" hidden>Import on this device</button>
       </div>
+      <p id="import-ai-note" class="muted small" hidden>Import with Claude sends your resume’s text, including your contact details, to Anthropic using your API key. It only happens when you click the button.</p>
       <p id="import-status" class="muted" role="status"></p>
     </section>
 

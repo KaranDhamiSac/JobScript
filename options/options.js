@@ -45,8 +45,6 @@ const LISTS = {
 
 let profile = null;
 let dirty = false;
-// Resume text from an import you applied; written to storage only when you click Save.
-let pendingResumeText = null;
 
 const saveBtn = document.getElementById('save');
 const saveStatus = document.getElementById('save-status');
@@ -195,10 +193,6 @@ for (const btn of document.querySelectorAll('[data-add]')) {
 
 async function save() {
   await S.saveProfile(profile);
-  if (pendingResumeText !== null) {
-    await S.saveResumeText(pendingResumeText);
-    pendingResumeText = null;
-  }
   setDirty(false);
   saveStatus.textContent = 'Saved';
   setTimeout(() => {
@@ -227,6 +221,8 @@ const resumeInput = document.getElementById('resume-input');
 const resumeChoose = document.getElementById('resume-choose');
 const resumeRemove = document.getElementById('resume-remove');
 const importBtn = document.getElementById('resume-import');
+const aiImportBtn = document.getElementById('resume-import-ai');
+const aiImportNote = document.getElementById('import-ai-note');
 const importStatus = document.getElementById('import-status');
 const reviewBox = document.getElementById('import-review');
 
@@ -235,7 +231,8 @@ function formatSize(bytes) {
 }
 
 async function renderResume() {
-  const resume = await S.getResume();
+  const [resume, key] = await Promise.all([S.getResume(), S.getApiKey()]);
+  aiImportBtn.hidden = aiImportNote.hidden = !(resume && key);
   if (resume) {
     const when = new Date(resume.savedAt).toLocaleDateString();
     resumeStatus.textContent = `${resume.name} (${formatSize(resume.size)}, saved ${when})`;
@@ -282,13 +279,23 @@ resumeInput.addEventListener('change', async () => {
     return;
   }
   await renderResume();
-  importFromResume();
+  if (await S.getApiKey()) {
+    // With a key saved, reading the resume with Claude is your choice; nothing is sent yet.
+    try {
+      await readResumeLines();
+    } catch (err) {
+      /* reported when you import */
+    }
+    importStatus.textContent = 'Resume saved. Click Import with Claude to have Claude read it, or Import on this device.';
+  } else {
+    importOnDevice();
+  }
 });
 
 resumeRemove.addEventListener('click', async () => {
   if (!confirm('Remove the saved resume and its imported text?')) return;
   await S.clearResume();
-  pendingResumeText = null;
+  linesCache = null;
   closeReview();
   renderResume();
 });
@@ -353,18 +360,31 @@ function reviewEntry(container, entry, fields, checked, heading) {
   };
 }
 
-function showReview(parsed, lines) {
+// Fields a resume can't answer, asked after every import. EEO answers keep your current choice,
+// which defaults to "Decline to answer".
+const QUESTIONNAIRE = [
+  ['workAuthorized', 'Authorized to work in the US?'],
+  ['requiresSponsorship', 'Require visa sponsorship?'],
+  ['willingToRelocate', 'Willing to relocate?'],
+  ['gender', 'Gender'],
+  ['race', 'Race / ethnicity'],
+  ['veteran', 'Veteran status'],
+  ['disability', 'Disability status'],
+];
+
+function showReview(parsed, source) {
   reviewBox.replaceChildren();
   reviewBox.hidden = false;
+  const origin = source === 'Claude' ? 'Read by Claude from your resume.' : 'Parsed on this device from your resume.';
   reviewBox.append(
     h('h2', { text: 'Review imported info' }),
     h('p', {
       class: 'muted',
-      text: 'Parsed on this device from your resume. Check what to keep and fix anything that looks wrong. Nothing is saved until you click Apply and then Save profile.',
+      text: `${origin} Check what to keep and fix anything that looks wrong. Nothing is saved until you click Apply and then Save profile.`,
     })
   );
 
-  const getters = { contact: [], workHistory: [], education: [], skills: null };
+  const getters = { contact: [], workHistory: [], education: [], skills: null, questionnaire: [] };
 
   const contactGrid = h('div', { class: 'grid' });
   for (const [key, label] of CONTACT_FIELDS) {
@@ -412,6 +432,21 @@ function showReview(parsed, lines) {
   const found = getters.contact.length + getters.workHistory.length + getters.education.length + (getters.skills ? 1 : 0);
   if (!found) reviewBox.append(h('p', { text: 'JobScript couldn’t pick out any details. You can still fill your profile by hand.' }));
 
+  reviewBox.append(
+    h('h3', { text: 'A few things a resume can’t tell us' }),
+    h('p', { class: 'muted', text: 'Self-identification answers default to “Decline to answer”. Change them only if you want to.' })
+  );
+  const qGrid = h('div', { class: 'grid' });
+  for (const [key, label] of QUESTIONNAIRE) {
+    // Reuse the options from the main form's own select, without its data-key binding.
+    const select = document.querySelector(`#profile-form [data-key="${key}"]`).cloneNode(true);
+    select.removeAttribute('data-key');
+    select.value = profile[key] || '';
+    qGrid.append(h('label', {}, [document.createTextNode(label), select]));
+    getters.questionnaire.push(() => [key, select.value]);
+  }
+  reviewBox.append(qGrid);
+
   const apply = h('button', { type: 'button', class: 'primary', text: 'Apply to profile' });
   const cancel = h('button', { type: 'button', class: 'secondary', text: 'Cancel' });
   reviewBox.append(h('div', { class: 'row' }, [apply, cancel]));
@@ -435,7 +470,10 @@ function showReview(parsed, lines) {
       }
       profile.skills = [...merged.values()].join(', ');
     }
-    pendingResumeText = lines.join('\n');
+    for (const get of getters.questionnaire) {
+      const [key, value] = get();
+      profile[key] = value;
+    }
     renderBasics();
     Object.keys(LISTS).forEach(renderList);
     closeReview();
@@ -446,30 +484,75 @@ function showReview(parsed, lines) {
   reviewBox.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-// Reads the saved resume and opens the review screen. Runs right after you upload a PDF,
-// and again whenever you click "Import info from resume".
-async function importFromResume() {
+// Text of the saved resume, extracted on this device with pdf.js. The text is also saved for
+// AI answers, which read the resume; it is derived from the resume you already saved.
+let linesCache = null; // { savedAt, lines }
+
+async function readResumeLines() {
   const resume = await S.getResume();
-  if (!resume) return;
-  importBtn.disabled = true;
-  importStatus.textContent = 'Reading your resume on this device…';
+  if (!resume) return null;
+  if (linesCache && linesCache.savedAt === resume.savedAt) return linesCache.lines;
+  const { extractResumeLines } = await import('./resume-import.js');
+  const lines = await extractResumeLines(resume.data);
+  linesCache = { savedAt: resume.savedAt, lines };
+  if (lines.length) await S.saveResumeText(lines.join('\n'));
+  return lines;
+}
+
+const NO_TEXT = 'No text found in this PDF. It may be a scanned image; fill your profile by hand.';
+
+function setImportBusy(busy, message) {
+  importBtn.disabled = aiImportBtn.disabled = busy;
+  if (message !== undefined) importStatus.textContent = message;
+}
+
+// Local fallback: pattern-based parsing, nothing leaves this device.
+async function importOnDevice() {
+  setImportBusy(true, 'Reading your resume on this device…');
   try {
-    const { extractResumeLines } = await import('./resume-import.js');
-    const lines = await extractResumeLines(resume.data);
-    if (!lines.length) {
-      importStatus.textContent = 'No text found in this PDF. It may be a scanned image; fill your profile by hand.';
-      return;
-    }
+    const lines = await readResumeLines();
+    if (!lines) return;
+    if (!lines.length) return void (importStatus.textContent = NO_TEXT);
     importStatus.textContent = '';
-    showReview(parseResume(lines), lines);
+    showReview(parseResume(lines), 'this device');
   } catch (err) {
     importStatus.textContent = 'Could not read this PDF: ' + (err.message || err);
   } finally {
-    importBtn.disabled = false;
+    setImportBusy(false);
   }
 }
 
-importBtn.addEventListener('click', importFromResume);
+// Extract the text here, then have Claude (via background.js, which holds the key) structure it.
+async function importWithClaude() {
+  setImportBusy(true, 'Reading your resume…');
+  try {
+    const lines = await readResumeLines();
+    if (!lines) return;
+    if (!lines.length) return void (importStatus.textContent = NO_TEXT);
+    importStatus.textContent = 'Claude is reading your resume…';
+    const res = await chrome.runtime.sendMessage({ type: 'ai-parse-resume', text: lines.join('\n') });
+    if (!res || !res.ok) {
+      importStatus.textContent = `Claude couldn’t read it: ${(res && res.error) || 'unknown error.'} You can use Import on this device instead.`;
+      return;
+    }
+    importStatus.textContent = '';
+    showReview(res.draft, 'Claude');
+  } catch (err) {
+    importStatus.textContent = 'Could not import with Claude: ' + (err.message || err);
+  } finally {
+    setImportBusy(false);
+  }
+}
+
+importBtn.addEventListener('click', importOnDevice);
+aiImportBtn.addEventListener('click', () => {
+  // Ask for access within the click itself; browsers only allow permission prompts then.
+  // Resolves immediately when access was already granted.
+  chrome.permissions.request(ANTHROPIC_ORIGIN).then((granted) => {
+    if (granted) importWithClaude();
+    else importStatus.textContent = 'Import with Claude needs access to api.anthropic.com.';
+  });
+});
 
 // ---------------------------------------------------------------------------
 // AI answers (optional). Saved immediately, separately from the profile. The key is never
@@ -493,6 +576,7 @@ async function renderAi(message) {
   aiKey.placeholder = key ? `Saved key ending in …${key.slice(-4)}` : 'sk-ant-…';
   aiKeyRemove.hidden = !key;
   aiStatus.textContent = message || (settings.enabled && !key ? 'Add your API key to use AI answers.' : '');
+  renderResume(); // Import with Claude appears once a key is saved
 }
 
 aiEnabled.addEventListener('change', () => {

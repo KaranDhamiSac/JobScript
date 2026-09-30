@@ -11,8 +11,8 @@ JobScript stores the details you enter on its options page:
 - contact details, links, skills and work-eligibility answers
 - optional demographic (EEO) answers, which default to "Decline to answer"
 - work history, education and your saved question-and-answer pairs (your "bank")
-- your resume PDF, and its plain text if you use **Import info from resume**
-- if you turn on AI answers: your Anthropic API key and your chosen model
+- your resume PDF, and its plain text (extracted on your device when you upload it)
+- if you use the Claude features: your Anthropic API key and your chosen model
 
 ## Where it is stored
 
@@ -20,13 +20,13 @@ Everything is stored locally, in your browser's extension storage (`chrome.stora
 
 This storage is not encrypted. Anyone with access to your browser profile could read it, including your API key if you saved one.
 
-Resume import runs entirely on your device, using a copy of pdf.js bundled inside the extension.
+Reading text out of your resume PDF always happens on your device, using a copy of pdf.js bundled inside the extension. **Import on this device** also turns that text into a draft profile on your device.
 
 ## What JobScript sends, and to whom
 
-**By default, nothing.** JobScript has no servers and no analytics or tracking. With AI answers off, it makes no network requests.
+**By default, nothing.** JobScript has no servers and no analytics or tracking. Unless you click **Import with Claude** or turn on AI answers, it makes no network requests.
 
-Your information leaves your device in two ways.
+Your information leaves your device in three ways.
 
 ### 1. Into the job application you fill
 
@@ -38,18 +38,22 @@ When you click **Fill this page** or press the shortcut, JobScript puts your inf
 
 JobScript never submits an application for you.
 
-### 2. To Anthropic, only if you turn on AI answers
+### 2. To Anthropic, only if you click Import with Claude
+
+With an API key saved, the options page shows **Import with Claude**. Clicking it sends your resume's text to Anthropic's API, so Claude can turn it into a draft profile for you to review. The text includes everything on your resume, **including your name, email, phone number and address**, because those are the details being imported. Nothing is sent when you upload a resume; only when you click that button. **Import on this device** reads the resume without sending anything.
+
+### 3. To Anthropic, only if you turn on AI answers
 
 AI answers are **off by default**. If you turn them on and add your own Anthropic API key, then each time you click Fill, JobScript sends these to Anthropic's API (`api.anthropic.com`) to ask Claude to suggest answers:
 
 - the questions JobScript couldn't answer, with their answer options
 - your profile: name, city, links, work authorization, skills, work history, education and saved answers
-- your resume text, with email addresses, phone numbers and street addresses removed
+- your full resume text, with email addresses, phone numbers and street addresses removed
 - the job title and description from the page
 
-JobScript never sends your email, phone number, street address, ZIP code or self-identification (EEO) answers. It also never asks the AI questions about consent, signatures, SSN, date of birth or similar sensitive topics.
+When answering questions, JobScript never sends your email, phone number, street address, ZIP code or self-identification (EEO) answers. It also never asks the AI questions about consent, signatures, SSN, date of birth or similar sensitive topics.
 
-The request is authenticated with your API key and billed to your Anthropic account. Anthropic's commercial terms and privacy policy govern how Anthropic handles it. JobScript uses no intermediary server; the request goes straight from your browser to Anthropic.
+Requests to Anthropic (both features) are authenticated with your API key and billed to your Anthropic account. Anthropic's commercial terms and privacy policy govern how Anthropic handles it. JobScript uses no intermediary server; requests go straight from your browser to Anthropic.
 
 Claude's answers only appear as suggestions in JobScript's side panel. None are typed into the form until you click Accept or Insert. You can turn AI answers off at any time, which also removes the extension's permission to contact Anthropic.
 

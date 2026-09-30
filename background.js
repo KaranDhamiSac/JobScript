@@ -117,6 +117,19 @@ async function answerWithAi(msg, sender) {
   return JobScriptAI.answerQuestions({ apiKey, model: settings.model, profile, resumeText, request });
 }
 
+// Resume import with Claude, requested from the options page when you click "Import with Claude".
+// Needs a saved key and the api.anthropic.com permission, not the form-answers toggle.
+async function parseResumeWithAi(msg) {
+  const apiKey = await JobScriptStorage.getApiKey();
+  if (!apiKey) return { ok: false, error: 'Add your Anthropic API key first.' };
+  if (!(await chrome.permissions.contains({ origins: [ANTHROPIC_ORIGIN] }))) {
+    return { ok: false, error: 'JobScript needs permission to reach api.anthropic.com.' };
+  }
+  const text = typeof msg.text === 'string' ? msg.text : '';
+  const settings = await JobScriptStorage.getAiSettings();
+  return JobScriptAI.parseResume({ apiKey, model: settings.model, text });
+}
+
 // Messages from our own content scripts carry sender.tab; page scripts can't send these at all.
 function isOwnContentScript(sender) {
   return sender.id === chrome.runtime.id && !!sender.tab && Number.isInteger(sender.tab.id) && typeof sender.url === 'string';
@@ -134,6 +147,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!isTrustedSender(sender, 'popup/') || !Number.isInteger(msg.tabId)) return false;
     fillTab(msg.tabId).then(sendResponse);
     return true; // keep the channel open for the async response
+  }
+  if (msg.type === 'ai-parse-resume') {
+    if (!isTrustedSender(sender, 'options/')) return false;
+    parseResumeWithAi(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Something went wrong asking Claude.' }));
+    return true;
   }
   if (msg.type === 'ai-answer') {
     if (!isOwnContentScript(sender)) return false;
