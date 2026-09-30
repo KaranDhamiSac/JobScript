@@ -51,11 +51,23 @@ function titleCase(s) {
   return s.toLowerCase().replace(/\b([a-z])/g, (m) => m.toUpperCase());
 }
 
+const HEADING_WORDS = /experience|education|skill|project|leadership|employment|work|certific|technical|activities|volunteer|award|honor|summary|objective|profile|interest|coursework|publication|involvement|academic|internship/;
+
+// Section a heading line starts, or null. Accepts the known names above, and short ALL-CAPS
+// lines built around a section word ("TECHNICAL SKILLS & CERTIFICATIONS", "PROJECT EXPERIENCE").
 function headingKind(line) {
-  const t = clean(line).toLowerCase().replace(/[:：]$/, '').replace(/[^a-z& ]/g, '').trim();
-  if (!t || t.length > 40) return null;
-  for (const [kind, names] of Object.entries(SECTION_HEADINGS)) if (names.includes(t)) return kind;
-  return null;
+  const raw = clean(line).replace(/[:：]$/, '');
+  const t = raw.toLowerCase().replace(/[^a-z& ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t || t.length > 45) return null;
+  const known = Object.values(SECTION_HEADINGS).some((names) => names.includes(t));
+  const capsHeading = raw === raw.toUpperCase() && /[A-Z]/.test(raw) && raw.split(' ').length <= 6 && HEADING_WORDS.test(t);
+  if (!known && !capsHeading) return null;
+  if (/project/.test(t)) return 'projects';
+  if (/leadership|volunteer|activit|involvement|award|honor|publication|interest|summary|objective|profile|reference|coursework/.test(t)) return 'other';
+  if (/education|academic/.test(t)) return 'education';
+  if (/skill|technolog|competenc|proficienc|certific|tools/.test(t)) return 'skills';
+  if (/experience|employment|work|career|internship/.test(t)) return 'work';
+  return 'other';
 }
 
 // "May 2026" / "05/2026" / "2026" -> "2026-05". fallbackMonth is used when only a year is known.
@@ -100,6 +112,34 @@ function findLocation(text) {
     if (hit) return { city: clean(hit[1]), state: stateAbbr(full), zip: '', match: hit[0] };
   }
   return null;
+}
+
+// Multi-word US city names: words that start one ("San", "New") or end one ("Beach", "City").
+const CITY_PREFIX = /^(san|santa|los|las|la|el|new|fort|ft\.?|saint|st\.?|salt|palm|long|west|east|north|south|lake|mount|mt\.?|grand|rancho|elk|cedar|palo|menlo|redwood|daly|round|baton|des|sioux|little|colorado|kansas|jersey|oklahoma|virginia|carson|walnut|citrus|mission|foster|union|half|diamond|chula|costa|culver|morgan|pleasant|thousand|pompano|boca|coral|cape|port|glen|bowling|ann)$/i;
+const CITY_SUFFIX = /^(city|beach|springs|park|valley|heights|falls|rock|creek|grove|hills|island|bay|harbor|point|gate|view|vista|lake|rapids|mesa|hill|field|wood|haven|bend|ridge|cruz|francisco|diego|jose|angeles|vegas|clara|monica|barbara|rosa|ana|mateo|york|orleans|lauderdale|worth|collins|wayne|paso)$/i;
+const COMPANY_SUFFIX = /^(inc|inc\.|llc|l\.l\.c\.|corp|corp\.|co|co\.|ltd|ltd\.|lp|llp|plc|group|company|corporation|incorporated)$/i;
+
+// Splits "Northwind Logistics Inc. Fresno, CA" into { rest: "Northwind Logistics Inc.", location: "Fresno, CA" }.
+// Only looks at the end of the line, and takes as few words for the city as it can, so the
+// organization's name is never swallowed into the location.
+function splitTrailingLocation(line) {
+  const text = clean(line);
+  const remote = text.match(/^(.*?)[\s,|–—-]*\b(remote|hybrid)\s*$/i);
+  if (remote && remote[1]) return { rest: remote[1].replace(/[\s,|–—-]+$/, ''), location: remote[2] };
+  const m = text.match(/^(.*?)[\s,|–—-]*((?:[A-Z][A-Za-z.'-]*\s+){0,3}[A-Z][A-Za-z.'-]*),\s*([A-Z]{2})(?:\s+(\d{5})(?:-\d{4})?)?\s*$/);
+  if (!m) return null;
+  const words = m[2].split(/\s+/);
+  let n = 1;
+  while (n < words.length) {
+    const first = words[words.length - n];
+    const prev = words[words.length - n - 1];
+    if (COMPANY_SUFFIX.test(prev) || (/\.$/.test(prev) && !/^(st|mt|ft)\.$/i.test(prev))) break;
+    if (CITY_SUFFIX.test(first) || CITY_PREFIX.test(prev)) n++;
+    else break;
+  }
+  const city = words.slice(words.length - n).join(' ');
+  const rest = clean([m[1], ...words.slice(0, words.length - n)].join(' ')).replace(/[\s,|–—-]+$/, '');
+  return { rest, location: `${city}, ${m[3]}`, city, state: m[3], zip: m[4] || '' };
 }
 
 // ---------------------------------------------------------------------------
@@ -150,10 +190,10 @@ function parseContact(headerLines, allText) {
 // Sections
 
 function splitSections(lines) {
-  const sections = { header: [], work: [], education: [], skills: [], other: [] };
+  const sections = { header: [], work: [], education: [], skills: [], projects: [], other: [] };
   let current = 'header';
-  for (const line of lines) {
-    const kind = headingKind(line);
+  for (const [i, line] of lines.entries()) {
+    const kind = i === 0 ? null : headingKind(line);
     if (kind) {
       current = kind;
       continue;
@@ -188,6 +228,50 @@ function blocks(lines) {
   return out;
 }
 
+// A list of technologies ("Excel, Tableau, SQL") rather than a name or title.
+function isTechList(part) {
+  return /,/.test(part) && !TITLE_WORDS.test(part.split(',')[0]);
+}
+
+// Employer, title, location and dates from a job's header line(s) only; bullets are never used.
+// Handles "Company  City, ST" + "Title | Tech, Stack  Mon YYYY - Present", "Title, Company",
+// "Title at Company" and "Company — Title".
+function parseJobHeader(head) {
+  const entry = { employer: '', title: '', location: '', startDate: '', endDate: '', current: false, supervisorName: '', supervisorPhone: '', description: '', source: head.map(clean).join(' / ') };
+  const named = []; // candidate names/titles, in order
+  for (const line of head) {
+    let rest = line;
+    const range = line.match(RANGE_RE);
+    if (range) {
+      entry.startDate = toYearMonth(range[1], '01');
+      entry.current = isPresent(range[2]);
+      entry.endDate = entry.current ? '' : toYearMonth(range[2], '12');
+      rest = rest.replace(range[0], ' ');
+    }
+    const loc = !entry.location && splitTrailingLocation(rest);
+    if (loc) {
+      entry.location = loc.location;
+      rest = loc.rest;
+    }
+    const parts = splitParts(rest.replace(/\s+\|\s+/g, '   |   '));
+    parts.forEach((p, i) => {
+      if (/^[,|•·–—-]+$/.test(p)) return;
+      // After a "|" on a title line, a comma list is the tech stack, not an employer.
+      if (i > 0 && isTechList(p)) return;
+      const at = p.match(/^(.+?)\s+at\s+(.+)$/i);
+      if (at) return void named.push(at[1], at[2]);
+      const comma = p.match(/^([^,]+),\s+([^,]+)$/);
+      if (comma && (TITLE_WORDS.test(comma[1]) || TITLE_WORDS.test(comma[2]))) return void named.push(comma[1], comma[2]);
+      named.push(clean(p));
+    });
+  }
+  const titleIdx = named.findIndex((p) => TITLE_WORDS.test(p));
+  if (titleIdx >= 0) entry.title = named[titleIdx];
+  entry.employer = named.find((p, i) => i !== titleIdx) || '';
+  if (!entry.title && named.length > 1) entry.title = named.find((p) => p !== entry.employer) || '';
+  return entry;
+}
+
 function parseWork(lines) {
   const entries = [];
   for (const block of blocks(lines)) {
@@ -213,33 +297,7 @@ function parseWork(lines) {
     block.body.unshift(...prose);
 
     groups.forEach((head, gi) => {
-      const entry = { employer: '', title: '', location: '', startDate: '', endDate: '', current: false, supervisorName: '', supervisorPhone: '', description: '' };
-      const parts = [];
-      for (const line of head) {
-        let rest = line;
-        const range = line.match(RANGE_RE);
-        if (range) {
-          entry.startDate = toYearMonth(range[1], '01');
-          entry.current = isPresent(range[2]);
-          entry.endDate = entry.current ? '' : toYearMonth(range[2], '12');
-          rest = rest.replace(range[0], ' ');
-        }
-        const loc = rest.match(CITY_STATE_RE) || rest.match(/\bremote\b/i);
-        if (loc && !entry.location) {
-          entry.location = clean(loc[0]);
-          rest = rest.replace(loc[0], ' ');
-        }
-        for (const p of splitParts(rest)) {
-          const at = p.match(/^(.+?)\s+at\s+(.+)$/i);
-          if (at) parts.push(at[1], at[2]);
-          else parts.push(...p.split(/,\s+(?=[A-Z])/).map(clean));
-        }
-      }
-      const useful = parts.filter((p) => p && !/^[,|•·–—-]+$/.test(p));
-      const titleIdx = useful.findIndex((p) => TITLE_WORDS.test(p));
-      if (titleIdx >= 0) entry.title = useful[titleIdx];
-      entry.employer = useful.find((p, i) => i !== titleIdx) || '';
-      if (!entry.title && useful.length > 1) entry.title = useful.find((p) => p !== entry.employer) || '';
+      const entry = parseJobHeader(head);
       if (gi === groups.length - 1) entry.description = block.body.join('\n');
       if (entry.employer || entry.title) entries.push(entry);
     });
@@ -260,7 +318,7 @@ function degreeInfo(line) {
       const ext = after.match(/^('?s)?(\s+of\s+(fine arts|business administration|science|arts|engineering|education|public health|social work|laws))?(\s+degree)?/i);
       if (ext) degree += ext[0];
       degree = clean(degree);
-      let rest = clean(line.slice(start + degree.length).replace(/^[,:|–—-]?\s*(in\s+)?/i, ''));
+      let rest = clean(line.slice(start + degree.length).replace(/^[,:|–—-]?\s*((in|of)\s+)?/i, ''));
       rest = rest.replace(RANGE_RE, '').replace(SINGLE_DATE_RE, '').replace(/\bgpa\b.*$/i, '');
       rest = rest.replace(/[,;]?\s*minor\b.*$/i, '').replace(/\bexpected\b.*$/i, '').replace(YEAR_RE, '');
       const major = clean(splitParts(rest)[0] || '').replace(/[,.;]$/, '');
@@ -273,7 +331,7 @@ function degreeInfo(line) {
 function parseEducation(lines) {
   const entries = [];
   let cur = null;
-  const blank = () => ({ school: '', degree: '', major: '', gpa: '', location: '', startDate: '', gradDate: '' });
+  const blank = () => ({ school: '', degree: '', major: '', gpa: '', location: '', startDate: '', gradDate: '', source: '' });
   for (const raw of lines) {
     const spaced = String(raw || '').replace(BULLET_RE, '').trim();
     const line = clean(spaced);
@@ -288,7 +346,21 @@ function parseEducation(lines) {
       cur = blank();
       entries.push(cur);
     }
-    if (schoolPart && !cur.school) cur.school = schoolPart.replace(CITY_STATE_RE, '').replace(/[,–—-]\s*$/, '').trim();
+    if (schoolPart && !cur.school) {
+      cur.school = clean(
+        schoolPart
+          .replace(/\([^)]*\)/g, ' ')
+          .replace(/\b(expected\s+)?graduat(ion|ing|ed)(\s+date)?\s*:?.*$/i, ' ')
+          .replace(RANGE_RE, ' ')
+          .replace(SINGLE_DATE_RE, ' ')
+      ).replace(/[,–—-]\s*$/, '');
+      const loc = splitTrailingLocation(cur.school);
+      if (loc && SCHOOL_WORDS.test(loc.rest)) {
+        cur.school = loc.rest;
+        cur.location = loc.location;
+      }
+      cur.source = clean(spaced);
+    }
     const deg = !cur.degree && degreeInfo(line);
     if (deg) {
       cur.degree = deg.degree;
@@ -318,9 +390,15 @@ function parseEducation(lines) {
 function parseSkills(lines) {
   const seen = new Set();
   const out = [];
+  let skipping = false;
   for (const raw of lines) {
+    // Certifications and coursework aren't skills (their wrapped continuation lines neither).
+    const labelled = stripBullet(raw).match(/^\s*([A-Za-z &/]{2,30}):/);
+    if (labelled) skipping = /certification|coursework|award/i.test(labelled[1]);
+    if (skipping) continue;
     const line = stripBullet(raw).replace(/^[A-Za-z &/]{2,30}:\s*/, '');
-    for (const piece of line.split(/[,•|;·]|\s{2,}/)) {
+    // Split on separators that aren't inside parentheses: "SQL (PostgreSQL, MS SQL)" stays whole.
+    for (const piece of line.split(/[,•|;·](?![^(]*\))|\s{2,}/)) {
       const s = clean(piece).replace(/\.$/, '');
       if (!s || s.length > 40) continue;
       const key = s.toLowerCase();
@@ -333,7 +411,7 @@ function parseSkills(lines) {
 }
 
 export function parseResume(lines) {
-  const cleanLines = lines.map((l) => String(l || '').replace(/ /g, ' ').trimEnd());
+  const cleanLines = lines.map((l) => String(l || '').replace(/ /g, ' ').replace(/[’‘]/g, "'").replace(/[“”]/g, '"').trimEnd());
   const sections = splitSections(cleanLines);
   const allText = cleanLines.join('\n');
   const headerLines = sections.header.length ? sections.header.slice(0, 10) : cleanLines.slice(0, 10);

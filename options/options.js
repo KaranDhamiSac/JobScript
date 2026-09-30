@@ -335,6 +335,8 @@ function reviewEntry(container, entry, fields, checked, heading) {
   const box = h('input', { type: 'checkbox', checked });
   const card = h('div', { class: 'entry' }, [
     h('label', { class: 'check' }, [box, document.createTextNode(heading)]),
+    // The resume line this entry was read from, so mistakes are easy to spot.
+    h('p', { class: 'source', text: entry.source ? `From your resume: “${entry.source}”` : 'Couldn’t match this to a line in your resume; check it carefully.' }),
   ]);
   const grid = h('div', { class: 'grid' });
   const inputs = {};
