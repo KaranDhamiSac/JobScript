@@ -144,7 +144,7 @@
       for (let i = 0; sib && i < 3; i++, sib = sib.previousElementSibling) {
         if (sib.matches('input, select, textarea') || sib.querySelector('input, select, textarea')) break;
         const t = clean(sib.textContent);
-        if (t && t.length <= 200) return t;
+        if (t && t.length <= 500) return t;
       }
       node = node.parentElement;
     }
@@ -382,14 +382,23 @@
     return true;
   }
 
+  // Confidence tiers (see FM.confidence): high fills automatically, medium is suggested,
+  // low is left for you.
+  function tierOf(conf) {
+    return conf >= FM.confidence.high ? 'high' : conf >= FM.confidence.medium ? 'medium' : 'low';
+  }
+
+  // { score, conf }: score ranks rules against each other; conf (0-1) says how sure the match is.
   function scoreRule(c, d) {
+    const none = { score: 0, conf: 0 };
     const all = [d.label, d.aria, d.placeholder, d.attrs].join(' | ');
-    if (c.exclude.some((re) => re.test(all))) return 0;
-    if (d.autocomplete && c.autocomplete.includes(d.autocomplete)) return 1000;
+    if (c.exclude.some((re) => re.test(all))) return none;
+    if (d.autocomplete && c.autocomplete.includes(d.autocomplete)) return { score: 1000, conf: 1 };
 
     // Questions and upload widgets tend to have long labels ("Resume/CV ATTACH Analyzing resume...").
     const loose = c.type === 'bool' || c.type === 'choice' || c.type === 'file';
     let best = 0;
+    let conf = 0;
     const sources = [[d.label, 3], [d.aria, 3], [d.placeholder, 2], [d.attrs, 2], [d.context, 1]];
     for (const [text, weight] of sources) {
       if (!text) continue;
@@ -398,23 +407,29 @@
           const m = text.match(re);
           if (!m) continue;
           const len = m[0].length;
+          const coverage = len / text.length;
           // A short keyword buried in a long question is probably a coincidence.
-          const accepted = loose || isPattern || len >= 10 || len / text.length >= 0.3;
-          if (accepted) best = Math.max(best, weight * (10 + len));
+          const strong = isPattern || len >= 10 || coverage >= 0.3;
+          if (!strong && !loose) continue;
+          best = Math.max(best, weight * (10 + len));
+          // Upload widgets are unambiguous once "resume" appears, however noisy the label.
+          let matchConf = isPattern || len >= 10 || coverage >= 0.5 ? 0.92 : strong ? 0.88 : c.type === 'file' ? 0.9 : 0.7;
+          if (weight === 1) matchConf = Math.min(matchConf, 0.85); // matched only on surrounding markup
+          conf = Math.max(conf, matchConf);
         }
       }
     }
-    return best;
+    return { score: best, conf };
   }
 
   function bestRule(rules, d, kind) {
     let best = null;
     for (const c of rules) {
       if (!compatible(c.type, kind)) continue;
-      const score = scoreRule(c, d);
-      if (score > 0 && (!best || score > best.score)) best = { c, score };
+      const r = scoreRule(c, d);
+      if (r.score > 0 && (!best || r.score > best.score)) best = { c, score: r.score, conf: r.conf };
     }
-    return best && best.c;
+    return best;
   }
 
   function bestCustomAnswer(labelRaw, answers) {
@@ -432,20 +447,41 @@
     return v == null ? '' : String(v);
   }
 
+  function withConfidence(match, conf) {
+    match.confidence = Math.round(conf * 100) / 100;
+    match.tier = tierOf(conf);
+    return match;
+  }
+
   function matchField(f, profile) {
     const d = f.desc;
     const custom = f.kind === 'file' ? null : bestCustomAnswer(d.labelRaw, profile.customAnswers);
-    if (custom && custom.score >= 0.9) return { source: 'custom answer', type: 'text', raw: custom.answer };
-
-    let c = f.section ? bestRule(SECTION_RULES[f.section], d, f.kind) : null;
-    if (!c) c = bestRule(TOP_RULES, d, f.kind);
-    if (!c && !f.section) c = bestRule(STANDALONE_RULES, d, f.kind);
-    if (c) {
-      if (c.section) return { source: c.section + '.' + c.key, c, type: c.type, section: c.section, key: c.key };
-      return { source: c.key, c, type: c.type, key: c.key, raw: c.type === 'file' ? 'resume' : valueFor(c, profile) };
+    if (custom && custom.score >= 0.9) {
+      return withConfidence({ source: 'saved answer', type: 'text', raw: custom.answer }, 0.95);
     }
 
-    if (custom && custom.score >= 0.6) return { source: 'custom answer', type: 'text', raw: custom.answer };
+    let hit = f.section ? bestRule(SECTION_RULES[f.section], d, f.kind) : null;
+    let standalone = false;
+    if (!hit) hit = bestRule(TOP_RULES, d, f.kind);
+    if (!hit && !f.section) {
+      hit = bestRule(STANDALONE_RULES, d, f.kind);
+      standalone = !!hit;
+    }
+    if (hit) {
+      const c = hit.c;
+      let conf = hit.conf;
+      if (c.rule.confidence === 'medium') conf = Math.min(conf, 0.7); // lookups, e.g. skills
+      if (standalone) conf = Math.min(conf, 0.75); // "School" with no Education section around it
+      const match = c.section
+        ? { source: c.section + '.' + c.key, c, type: c.type, section: c.section, key: c.key }
+        : { source: c.key, c, type: c.type, key: c.key, raw: c.type === 'file' ? 'resume' : valueFor(c, profile) };
+      return withConfidence(match, conf);
+    }
+
+    if (custom && custom.score >= 0.6) {
+      // Similar, not identical, question: 0.6 -> 0.60, 0.9 -> 0.75.
+      return withConfidence({ source: 'saved answer', type: 'text', raw: custom.answer }, 0.6 + (custom.score - 0.6) * 0.5);
+    }
     return null;
   }
 
@@ -673,10 +709,11 @@
     return { level: lvl ? lvl.level : null, search: lvl ? lvl.search : null, field: fld ? fld.field : null };
   }
 
-  // Index of the option whose degree level (and ideally field) matches, or -1.
+  // { i, strong } for the option whose degree level (and ideally field) matches; i is -1 if none.
+  // A same-level option with a different field (B.A. for a B.S.) is a weak pick.
   function pickDegree(cands, value) {
     const want = parseDegree(value);
-    if (!want.level) return -1;
+    if (!want.level) return { i: -1, strong: false };
     let best = null;
     for (const o of cands) {
       const got = parseDegree(o.text);
@@ -684,39 +721,41 @@
       const score = !want.field || !got.field ? 2 : want.field === got.field ? 3 : 1;
       if (!best || score > best.score) best = { i: o.i, score };
     }
-    return best ? best.i : -1;
+    return best ? { i: best.i, strong: best.score >= 2 } : { i: -1, strong: false };
   }
 
   // options: [{ text, value }]. Returns the index of the best option, or -1.
-  function pickOption(options, value, hint) {
+  // { index, strong }. Strong picks are exact, alias, prefix or degree-level matches;
+  // weak ones (substring or word-overlap guesses) become suggestions instead of fills.
+  function pickOptionDetailed(options, value, hint) {
     const cands = options
       .map((o, i) => ({ i, text: clean(o.text), nt: norm(o.text), nv: norm(o.value) }))
       .filter((o) => o.text && !isPlaceholderOption(o.text));
     const target = norm(value);
-    const tests = [];
+    const tests = []; // [predicate, strong]
 
-    if (hint.bool) tests.push((o) => classifyBool(o.text) === hint.bool);
+    if (hint.bool) tests.push([(o) => classifyBool(o.text) === hint.bool, true]);
     if (hint.month) {
       const forms = monthForms(hint.month);
-      tests.push((o) => forms.has(o.nt) || forms.has(o.nv));
+      tests.push([(o) => forms.has(o.nt) || forms.has(o.nv), true]);
     }
     if (hint.key === 'state') {
       const forms = stateForms(value);
-      tests.push((o) => forms.has(o.nt) || forms.has(o.nv));
+      tests.push([(o) => forms.has(o.nt) || forms.has(o.nv), true]);
     }
-    for (const re of FM.valueAliases[value] || []) tests.push((o) => re.test(o.text));
-    tests.push((o) => o.nt === target || o.nv === target);
+    for (const re of FM.valueAliases[value] || []) tests.push([(o) => re.test(o.text), true]);
+    tests.push([(o) => o.nt === target || o.nv === target, true]);
     if (hint.key === 'degree') {
-      const i = pickDegree(cands, value);
-      tests.push((o) => o.i === i);
+      const d = pickDegree(cands, value);
+      tests.push([(o) => o.i === d.i, d.strong]);
     }
-    tests.push((o) => target.length >= 2 && o.nt.startsWith(target));
-    tests.push((o) => o.nt.length >= 3 && target.startsWith(o.nt));
-    tests.push((o) => target.length >= 3 && o.nt.includes(target));
+    tests.push([(o) => target.length >= 2 && o.nt.startsWith(target), true]);
+    tests.push([(o) => o.nt.length >= 3 && target.startsWith(o.nt), true]);
+    tests.push([(o) => target.length >= 3 && o.nt.includes(target), false]);
 
-    for (const test of tests) {
+    for (const [test, strong] of tests) {
       const hit = cands.find(test);
-      if (hit) return hit.i;
+      if (hit) return { index: hit.i, strong };
     }
 
     let best = null;
@@ -724,7 +763,15 @@
       const s = similarity(o.text, value);
       if (s >= 0.5 && (!best || s > best.s)) best = { i: o.i, s };
     }
-    return best ? best.i : -1;
+    return best ? { index: best.i, strong: false } : { index: -1, strong: false };
+  }
+
+  // "Sacramento, CA" -> "sacramento california", for matching location search results.
+  function expandStates(text) {
+    return norm(text)
+      .split(' ')
+      .map((t) => (t.length === 2 && FM.US_STATES[t.toUpperCase()] ? norm(FM.US_STATES[t.toUpperCase()]) : t))
+      .join(' ');
   }
 
   // ---------------------------------------------------------------------------
@@ -754,19 +801,25 @@
     return clean(el.value) !== '';
   }
 
-  function fillSelect(el, value) {
+  // Fill functions return true (filled), false (couldn't), or { weakPick } when the only
+  // matching option is a guess; that becomes a suggestion unless allowWeak is set.
+  function fillSelect(el, value, allowWeak) {
     const options = [...el.options].map((o) => ({ text: o.textContent, value: o.value }));
-    const idx = pickOption(options, value.text, value.hint);
+    const pick = pickOptionDetailed(options, value.text, value.hint);
+    const idx = pick.index;
     if (idx < 0) return false;
+    if (!pick.strong && !allowWeak) return { weakPick: clean(options[idx].text) };
     el.selectedIndex = idx;
     fireEvents(el);
     return true;
   }
 
-  function fillChoiceGroup(f, value) {
+  function fillChoiceGroup(f, value, allowWeak) {
     const options = f.groupInputs.map((i) => ({ text: optionLabel(i), value: i.value }));
-    const idx = pickOption(options, value.text, value.hint);
+    const pick = pickOptionDetailed(options, value.text, value.hint);
+    const idx = pick.index;
     if (idx < 0) return false;
+    if (!pick.strong && !allowWeak) return { weakPick: options[idx].text };
     const input = f.groupInputs[idx];
     if (!input.checked) input.click();
     input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
@@ -804,11 +857,15 @@
   // "Sacramento, California, United States" for "Sacramento, CA", so fall back to the
   // first result that starts with the same word.
   function pickSuggestion(items, value) {
-    if (!items.length) return -1;
-    const idx = pickOption(items.map((o) => ({ text: o.textContent, value: '' })), value.text, value.hint);
-    if (idx >= 0) return idx;
+    if (!items.length) return { index: -1, strong: false };
+    const pick = pickOptionDetailed(items.map((o) => ({ text: o.textContent, value: '' })), value.text, value.hint);
+    if (pick.index >= 0) return pick;
+    const expanded = expandStates(value.text);
+    const full = items.findIndex((o) => norm(o.textContent).startsWith(expanded));
+    if (full >= 0) return { index: full, strong: true };
     const firstWord = norm(value.text).split(' ')[0];
-    return firstWord.length >= 4 ? items.findIndex((o) => norm(o.textContent).startsWith(firstWord)) : -1;
+    const loose = firstWord.length >= 4 ? items.findIndex((o) => norm(o.textContent).startsWith(firstWord)) : -1;
+    return { index: loose, strong: false };
   }
 
   // Plain text boxes with a suggestion list next to them (Lever's "Current location").
@@ -839,7 +896,7 @@
     );
   }
 
-  async function fillAutocompleteText(el, value, box) {
+  async function fillAutocompleteText(el, value, box, allowWeak) {
     el.focus();
     setNativeValue(el, value.text);
     el.dispatchEvent(new Event('input', { bubbles: true }));
@@ -851,9 +908,17 @@
       const it = suggestionItems(box);
       return it.length ? it : null;
     }, 3000);
-    const idx = items ? pickSuggestion(items, value) : -1;
-    if (idx >= 0) {
-      clickOption(items[idx]);
+    const pick = items ? pickSuggestion(items, value) : { index: -1, strong: false };
+    if (pick.index >= 0 && !pick.strong && !allowWeak) {
+      const guess = clean(items[pick.index].textContent);
+      setNativeValue(el, '');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      keyEvent(el, 'Escape', 27);
+      el.blur();
+      return { weakPick: guess };
+    }
+    if (pick.index >= 0) {
+      clickOption(items[pick.index]);
       await sleep(150);
     }
     el.dispatchEvent(new Event('change', { bubbles: true }));
@@ -890,17 +955,17 @@
     keyEvent(el, 'ArrowDown', 40);
   }
 
-  async function fillCombobox(f, value) {
+  async function fillCombobox(f, value, allowWeak) {
     const el = f.el;
-    const choose = (opts) => pickOption(opts.map((o) => ({ text: o.textContent, value: '' })), value.text, value.hint);
+    const choose = (opts) => pickOptionDetailed(opts.map((o) => ({ text: o.textContent, value: '' })), value.text, value.hint);
 
     await openCombobox(el);
     let opts = await waitFor(() => { const o = comboOptions(el); return o.length ? o : null; }, 500);
     const hadInitialOptions = !!opts;
-    let idx = opts ? choose(opts) : -1;
+    let pick = opts ? choose(opts) : { index: -1, strong: false };
 
     // Not in the initial list: type to search (handles long or remotely loaded lists).
-    if (idx < 0) {
+    if (pick.index < 0) {
       // Typing "BS" would filter out "Bachelor's Degree", so search degrees by level instead.
       const degreeSearch = value.hint.key === 'degree' && parseDegree(value.text).search;
       const search = value.hint.month ? FM.MONTHS[value.hint.month - 1] : degreeSearch || value.text.slice(0, 40);
@@ -909,21 +974,23 @@
       // A list that was already showing filters instantly; an empty one is probably loading remotely.
       opts = await waitFor(() => {
         const o = comboOptions(el);
-        return o.length && choose(o) >= 0 ? o : null;
+        return o.length && choose(o).index >= 0 ? o : null;
       }, hadInitialOptions ? 600 : 2500);
       opts = opts || comboOptions(el);
-      idx = pickSuggestion(opts, value);
+      pick = pickSuggestion(opts, value);
     }
 
-    if (idx < 0) {
+    const weak = pick.index >= 0 && !pick.strong && !allowWeak;
+    if (pick.index < 0 || weak) {
+      const guess = weak ? clean(opts[pick.index].textContent) : '';
       setNativeValue(el, '');
       el.dispatchEvent(new Event('input', { bubbles: true }));
       keyEvent(el, 'Escape', 27);
       el.blur();
-      return false;
+      return weak ? { weakPick: guess } : false;
     }
 
-    clickOption(opts[idx]);
+    clickOption(opts[pick.index]);
     await sleep(120);
     el.blur();
     return !isEmpty(f);
@@ -943,24 +1010,25 @@
     return el.files.length > 0;
   }
 
-  async function applyMatch(f, resume) {
+  async function applyMatch(f, resume, opts) {
     if (f.kind === 'file') return attachFile(f.el, resume);
     const value = resolveValue(f);
     if (!value) return false;
-    return applyValue(f, value);
+    return applyValue(f, value, opts);
   }
 
   // Put a resolved { text, hint } value into a field, whatever kind of widget it is.
-  async function applyValue(f, value) {
+  async function applyValue(f, value, opts) {
+    const allowWeak = !!(opts && opts.allowWeak);
     switch (f.kind) {
-      case 'select': return fillSelect(f.el, value);
+      case 'select': return fillSelect(f.el, value, allowWeak);
       case 'radio':
-      case 'checkboxGroup': return fillChoiceGroup(f, value);
+      case 'checkboxGroup': return fillChoiceGroup(f, value, allowWeak);
       case 'checkbox': return fillCheckbox(f.el, value);
-      case 'combobox': return fillCombobox(f, value);
+      case 'combobox': return fillCombobox(f, value, allowWeak);
       default: {
         const box = f.kind === 'text' && suggestionBox(f.el);
-        return box ? fillAutocompleteText(f.el, value, box) : fillText(f.el, value.text);
+        return box ? fillAutocompleteText(f.el, value, box, allowWeak) : fillText(f.el, value.text);
       }
     }
   }
@@ -1109,7 +1177,7 @@
     const accept = async () => {
       let ok = false;
       try {
-        ok = await apply();
+        ok = (await apply()) === true;
       } catch (err) {
         console.warn('[JobScript] could not apply suggestion', f.label, err);
       }
@@ -1161,11 +1229,20 @@
     }
   }
 
-  // The value a match would put in, for showing as a suggestion.
+  // What a match would put in, for showing as a suggestion. For selects and radios that's the
+  // option that would be chosen; '' when no option fits, so nothing is suggested.
   function previewValue(f) {
     if (f.kind === 'file') return f.match.raw ? 'Your resume' : '';
     const v = resolveValue(f);
-    return v ? v.text : '';
+    if (!v) return '';
+    if (f.kind === 'select' || f.kind === 'radio' || f.kind === 'checkboxGroup') {
+      const options = f.kind === 'select'
+        ? [...f.el.options].map((o) => ({ text: o.textContent, value: o.value }))
+        : f.groupInputs.map((i) => ({ text: optionLabel(i), value: i.value }));
+      const pick = pickOptionDetailed(options, v.text, v.hint);
+      return pick.index >= 0 ? clean(options[pick.index].text) : '';
+    }
+    return v.text;
   }
 
   // Fill one field and record its status.
@@ -1175,26 +1252,43 @@
       setStatus(f, 'filled', 'Already had a value', { noHighlight: true });
       return 'already';
     }
-    if (f.match && f.match.c && f.match.c.rule.confidence === 'medium') {
+    const pct = f.match ? `${Math.round(f.match.confidence * 100)}% match` : '';
+    if (f.match && f.match.tier === 'medium') {
       const text = previewValue(f);
       if (text) {
-        suggest(f, text, () => applyMatch(f, resume));
+        suggest(f, text, () => applyMatch(f, resume, { allowWeak: true }), { source: pct });
         return 'suggested';
       }
     }
-    let ok = false;
-    if (f.match) {
+    let result = false;
+    if (f.match && f.match.tier === 'high') {
       try {
-        ok = await applyMatch(f, resume);
+        result = await applyMatch(f, resume);
       } catch (err) {
         console.warn('[JobScript] could not fill field', f.label, err);
       }
     }
-    if (ok) {
+    if (result && result.weakPick) {
+      // Right field, but the only matching option is a guess.
+      suggest(f, result.weakPick, () => applyMatch(f, resume, { allowWeak: true }), { source: 'closest option' });
+      return 'suggested';
+    }
+    if (result === true) {
       setStatus(f, 'filled', preview(currentValueText(f)));
       return 'filled';
     }
-    const why = f.match && !f.match.raw && f.kind !== 'file' ? 'Not in your profile' : '';
+    if (f.match && f.match.tier === 'low') {
+      setStatus(f, 'needs', `Unsure (${pct}); answer this yourself`);
+      watchBank(f);
+      return 'needs';
+    }
+    if (f.kind === 'checkbox' && f.match && f.match.tier === 'high' && !f.match.raw) {
+      // e.g. "Current role" on a past job: unchecked is the right answer.
+      setStatus(f, 'filled', 'Left unchecked', { noHighlight: true });
+      return 'filled';
+    }
+    const why = !f.match ? '' : !f.match.raw && f.kind !== 'file' ? 'Not in your profile'
+      : f.options.length ? 'Your answer doesn’t match any option' : '';
     setStatus(f, 'needs', why);
     watchBank(f);
     return 'needs';
@@ -1398,23 +1492,27 @@
         setStatus(f, 'needs', 'Claude: not enough in your profile to answer');
         continue;
       }
-      const source = 'Claude' + (a.basis ? ': ' + a.basis : '');
+      if (a.confidence === 'low') {
+        setStatus(f, 'needs', 'Claude was unsure; answer this yourself');
+        continue;
+      }
+      const source = `Claude (${a.confidence})` + (a.basis ? ': ' + a.basis : '');
       if (f.aiKind === 'essay') {
-        suggest(f, a.answer, () => applyValue(f, { text: a.answer, hint: {} }), { draft: true, detail: 'Draft by ' + source });
+        suggest(f, a.answer, () => applyValue(f, { text: a.answer, hint: {} }, { allowWeak: true }), { draft: true, detail: 'Draft by ' + source });
       } else if (f.aiKind === 'multi') {
         suggest(
           f,
           a.choices.join(', '),
           async () => {
             let ok = true;
-            for (const c of a.choices) ok = (await applyValue(f, { text: c, hint: {} })) && ok;
+            for (const c of a.choices) ok = (await applyValue(f, { text: c, hint: {} }, { allowWeak: true })) === true && ok;
             return ok;
           },
           { source }
         );
       } else {
         const text = f.aiKind === 'choice' ? a.choices[0] : a.answer;
-        suggest(f, text, () => applyValue(f, { text, hint: {} }), { source });
+        suggest(f, text, () => applyValue(f, { text, hint: {} }, { allowWeak: true }), { source });
       }
       count++;
     }

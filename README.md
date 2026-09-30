@@ -2,6 +2,14 @@
 
 A Chrome/Firefox extension (Manifest V3) that autofills job applications on Greenhouse and Lever from a saved profile. It never submits; you review and submit yourself.
 
+## Features
+
+- **Fill:** click **Fill this page** or press **Alt+Shift+F** on a Greenhouse or Lever application, or any other page. JobScript never submits.
+- **Side panel:** lists every field by category, marked filled (green), suggested (purple) or needs you (yellow). Click an item to jump to its field.
+- **Confidence:** each match gets a score. High-confidence matches fill automatically, medium ones are suggestions you accept, and low ones stay yellow. Thresholds live in `lib/fieldMap.js` (`confidence`).
+- **Info bank:** import your profile from your resume PDF (parsed locally, reviewed before saving). When you answer a question JobScript left empty, **Save to bank** keeps the answer for next time.
+- **AI answers (optional, off by default):** with your own Anthropic API key, Claude suggests answers to the rest, using only facts from your profile and resume. Short answers are suggestions; essays are drafts you insert.
+
 See [PRIVACY.md](PRIVACY.md) for what JobScript stores and sends. Everything stays local unless you turn on the optional AI answers, which send specific data to Anthropic with your own API key.
 
 ## Packaging for the stores

@@ -5,7 +5,7 @@ The AI answers fallback (lib/ai.js) follows this plan. Use it for any future Cla
 ## Key handling
 
 - The user pastes their own Anthropic API key on the options page. JobScript never ships, hardcodes or proxies a key.
-- Store it in `chrome.storage.local` under a separate `settings` key, not inside `profile`:
+- Store it in `chrome.storage.local` under its own `anthropicApiKey` key (settings under `aiSettings`), not inside `profile`:
   - **Export** never includes the key, so a shared backup can't leak it.
   - Import ignores any key it finds.
 - The input is `type="password"`. After saving, show only the last 4 characters, and offer **Remove key**.
