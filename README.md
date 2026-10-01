@@ -11,7 +11,7 @@ A Chrome/Firefox extension (Manifest V3) that autofills job applications on Gree
 - **Master resume:** your profile holds every job (as bullet lists), project and skill. Import it from your resume PDF with Claude or on your device, and review each parsed entry next to the resume line it came from.
 - **Job description & my resume:** on a job page, open the full job description (title, company and link on top) and copy it in one click to tailor your resume however you like. Upload the resume you made for that job, and JobScript attaches it, fills the rest of the form from your profile, and optionally saves the description and resume to `Downloads/JobScript/<Company>/<Job title>/`.
 - **Tailor & Fill (optional):** on a job page, Claude picks and rewords your most relevant bullets and projects and orders your skills for that posting. JobScript enforces the rules in code (no new skills, tools or metrics; numbers kept exactly) and shows original vs tailored side by side with the posting's missing keywords. On approval it builds a one-page ATS-friendly PDF locally (`FirstName_LastName_Company.pdf`), attaches it and fills the form.
-- **Applications tracker:** every fill is logged in the popup's Applications tab (one entry per job, with status and the tailored resume), exportable as CSV.
+- **Applications tracker:** every fill is logged once per job (status starts at Filled; mark it Applied when you submit). Open it from the popup for a full page with a GitHub-style yearly heatmap, a month calendar of applied and filled counts (click a day for its company, role, job ID, status and link), a daily goal with today's progress, current and longest streaks, and weekly and monthly totals. Dates use your local time zone. Exportable as CSV.
 - **AI answers (optional, off by default):** with your own Anthropic API key, Claude suggests answers to the rest, using only facts from your profile and resume. Short answers are suggestions; essays are drafts you insert.
 
 See [PRIVACY.md](PRIVACY.md) for what JobScript stores and sends. Everything stays local unless you turn on the optional AI answers, which send specific data to Anthropic with your own API key.
@@ -35,6 +35,15 @@ The `dev/` folder holds test-only tools. The extension never loads anything from
 | `dev/build.sh` | Builds `dev/bundle.js` (stub + extension scripts + CSS) for injecting into real pages. `bundle.js` is gitignored. |
 | `dev/proxy.py` | Serves a real job site from `127.0.0.1` with its Content-Security-Policy removed, so the bundle can be loaded. Forwards GET requests only. |
 | `dev/guard.js` | Injected by the proxy before the site's own scripts. Blocks every POST/PUT/PATCH/DELETE, beacon and form submit, and logs them to `window.__blockedRequests`. |
+
+### Unit tests
+
+```sh
+node dev/test-tracker-stats.mjs
+TZ=Asia/Kolkata node dev/test-tracker-stats.mjs
+```
+
+Checks the tracker's date math: local-time days, streaks, week and month totals, heatmap levels and calendar grids.
 
 ### Mock form
 
