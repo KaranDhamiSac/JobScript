@@ -13,6 +13,35 @@
       <button id="export-csv" type="button" class="secondary">Export CSV</button>
     </header>
 
+    <section id="stats-section" class="stats">
+      <div class="stat today-stat">
+        <div class="stat-label">Today</div>
+        <div class="stat-value"><span id="today-count">0</span><span class="of"> / <span id="goal-shown">5</span></span></div>
+        <div class="progress" role="progressbar" aria-labelledby="today-label" aria-valuemin="0" id="progress"><div id="progress-bar"></div></div>
+        <label class="goal small muted" id="today-label">Daily goal <input id="goal" type="number" min="1" max="100" step="1"></label>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Current streak</div>
+        <div class="stat-value" id="streak-current">0</div>
+        <div class="stat-sub small muted">days meeting your goal</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">Longest streak</div>
+        <div class="stat-value" id="streak-longest">0</div>
+        <div class="stat-sub small muted">days</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">This week</div>
+        <div class="stat-value" id="week-total">0</div>
+        <div class="stat-sub small muted">applied, since Sunday</div>
+      </div>
+      <div class="stat">
+        <div class="stat-label">This month</div>
+        <div class="stat-value" id="month-total">0</div>
+        <div class="stat-sub small muted" id="month-name">applied</div>
+      </div>
+    </section>
+
     <section id="heatmap-section">
       <div class="heat-head">
         <h2 id="heat-title">Past year</h2>

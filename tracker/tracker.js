@@ -9,7 +9,7 @@
   const today = () => new Date();
   let view = { year: today().getFullYear(), month: today().getMonth() };
   let selectedDay = '';
-  let goal = 5; // daily goal; the stats section makes it editable
+  let goal = 5; // daily goal, loaded from storage
 
   function el(tag, props, children) {
     const n = document.createElement(tag);
@@ -151,6 +151,34 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Goal, streaks and totals
+
+  function renderStats() {
+    const now = today();
+    const n = counts.applied.get(T.dayKey(now)) || 0;
+    $('today-count').textContent = String(n);
+    $('goal-shown').textContent = String(goal);
+    if (document.activeElement !== $('goal')) $('goal').value = String(goal);
+    const pct = Math.min(100, Math.round((n / goal) * 100));
+    $('progress-bar').style.width = pct + '%';
+    $('progress').classList.toggle('met', n >= goal);
+    $('progress').setAttribute('aria-valuemax', String(goal));
+    $('progress').setAttribute('aria-valuenow', String(n));
+    $('progress').setAttribute('aria-valuetext', `${n} of ${goal} today`);
+    const { current, longest } = T.streaks(counts.applied, goal, now);
+    $('streak-current').textContent = String(current);
+    $('streak-longest').textContent = String(longest);
+    $('week-total').textContent = String(T.weekTotal(counts.applied, now));
+    $('month-total').textContent = String(T.monthTotal(counts.applied, now));
+    $('month-name').textContent = `applied in ${now.toLocaleDateString(undefined, { month: 'long' })}`;
+  }
+
+  $('goal').addEventListener('change', async () => {
+    goal = (await S.saveTrackerSettings({ dailyGoal: $('goal').value })).dailyGoal;
+    render(); // the goal also sets streaks and heatmap shades
+  });
+
+  // ---------------------------------------------------------------------------
   // Yearly heatmap (GitHub style): one cell per day, darker for more applications.
 
   const CELL = 15; // cell width plus gap, in px; matches tracker.css
@@ -273,6 +301,7 @@
 
   function render() {
     counts = T.countsByDay(apps);
+    renderStats();
     renderHeatmap();
     renderCalendar();
     renderDay();
@@ -280,14 +309,23 @@
   }
 
   async function load() {
-    apps = await S.getApplications();
+    [apps, { dailyGoal: goal }] = await Promise.all([S.getApplications(), S.getTrackerSettings()]);
     render();
   }
 
-  // Redraw when applications change, e.g. a fill in another tab or a status change here.
+  // Redraw when applications or the goal change, e.g. a fill in another tab.
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.applications) load();
+    if (area === 'local' && (changes.applications || changes.trackerSettings)) load();
   });
+
+  // Roll over to a new day if the page stays open past midnight.
+  let shownDay = T.dayKey(today());
+  setInterval(() => {
+    if (T.dayKey(today()) !== shownDay) {
+      shownDay = T.dayKey(today());
+      render();
+    }
+  }, 60000);
 
   load();
 })();

@@ -146,3 +146,15 @@ button.cell:focus-visible, button.cell:hover { outline: 1px solid var(--fg); out
   pointer-events: none;
   white-space: nowrap;
 }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+.stat { padding: 4px 8px; border-left: 1px solid var(--border); }
+.stat:first-child { border-left: none; }
+.stat-label { font-size: 12px; color: var(--muted); font-weight: 600; }
+.stat-value { font-size: 28px; font-weight: 700; line-height: 1.2; }
+.stat-value .of { font-size: 16px; color: var(--muted); font-weight: 500; }
+.progress { height: 8px; border-radius: 4px; background: var(--heat-0); overflow: hidden; margin: 6px 0; }
+#progress-bar { height: 100%; width: 0; background: var(--heat-3); transition: width 0.3s; }
+.progress.met #progress-bar { background: var(--heat-4); }
+.goal { display: inline-flex; align-items: center; gap: 6px; }
+.goal input { width: 56px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--input-bg); color: var(--fg); font: inherit; }
