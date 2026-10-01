@@ -1511,6 +1511,17 @@
     return !!saved && norm(answerToSave(f, savedValue(saved))) === norm(answerToSave(f, value));
   }
 
+  // With auto-save on: the answers not saved yet, dates with the rule that gives the same date
+  // today (or the date itself).
+  function autoSaveItems(answers) {
+    return answers
+      .filter((a) => !alreadySaved(a.f, a.value))
+      .map((a) => {
+        const dc = dateChoices(a.f, a.value);
+        return Object.assign({}, a, { dateRule: dc ? dc.selected : '' });
+      });
+  }
+
   // Show the answers in the panel with a checkbox each; answers already saved for this site
   // start unticked.
   function openReview(answers, title) {
@@ -1544,7 +1555,14 @@
       anchor: () => highlightTarget(f),
       save: (value, dateRule) => saveAnswers([{ f, value, dateRule }]),
       dateChoices: (value) => dateChoices(f, value),
-      onUserValue: () => {
+      onUserValue: (value) => {
+        if (session && session.autoSave) {
+          saveAnswers(autoSaveItems([{ f, value }])).then(() => {
+            setStatus(f, 'filled', 'Filled by you · saved', { noHighlight: true });
+            renderPanel();
+          });
+          return true;
+        }
         setStatus(f, 'filled', 'Filled by you', { noHighlight: true });
         renderPanel();
       },
@@ -1761,6 +1779,16 @@
   function onStepChange(count, previous) {
     session.lastStep = previous;
     session.review = null;
+    if (session.autoSave && previous.length) {
+      const items = autoSaveItems(previous);
+      session.lastStep = null;
+      if (items.length) {
+        saveAnswers(items).then(() => {
+          session.note = `Saved ${items.length} answer${items.length === 1 ? '' : 's'} from the last step. ` + session.note;
+          renderPanel();
+        });
+      }
+    }
     if (stopWatching) stopWatching();
     for (const [id, f] of registry) {
       if (!f.el.isConnected) {
@@ -2003,10 +2031,11 @@
     try {
       const tailoredId = opts && typeof opts.tailoredId === 'string' ? opts.tailoredId : '';
       const tailored = tailoredId ? await S.getTailored(tailoredId) : null;
-      const [profile, master, saved] = await Promise.all([
+      const [profile, master, saved, answerSettings] = await Promise.all([
         S.getProfile(),
         tailored ? null : S.getResume(),
         S.getSiteAnswers(location.origin),
+        S.getAnswerSettings(),
       ]);
       siteFields = saved.fields;
       const resume = tailored || master;
@@ -2021,6 +2050,7 @@
       session = {
         site,
         profile,
+        autoSave: answerSettings.autoSave,
         note: tailored && !step ? `Attached your tailored resume (${tailored.name}). ` + DEFAULT_NOTE : DEFAULT_NOTE,
         forceResume: !!tailored && !step,
         tailoredId,

@@ -132,7 +132,8 @@
       setTimeout(() => {
         const value = getValue();
         if (!value) return;
-        if (onUserValue) onUserValue(value);
+        // onUserValue returns true when it saved the answer itself (auto-save is on).
+        if (onUserValue && onUserValue(value) === true) return;
         show({ f, getValue, save, dateChoices, onSaved }, anchor());
       }, 0);
     };
