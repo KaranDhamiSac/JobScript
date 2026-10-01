@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Application Tracker</title>
+  <link rel="stylesheet" href="tracker.css">
+</head>
+<body>
+  <main>
+    <header class="page-head">
+      <h1>Applications</h1>
+      <button id="export-csv" type="button" class="secondary">Export CSV</button>
+    </header>
+
+    <section id="all-section">
+      <h2>All applications</h2>
+      <p id="all-empty" class="muted" hidden>No applications yet. They appear here when JobScript fills one.</p>
+      <div class="table-wrap">
+        <table id="all">
+          <thead>
+            <tr><th>Filled</th><th>Company</th><th>Role</th><th>Job ID</th><th>Status</th><th>Resume</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="../lib/storage.js"></script>
+  <script src="stats.js"></script>
+  <script src="tracker.js"></script>
+</body>
+</html>
