@@ -8,6 +8,7 @@
   let counts = { applied: new Map(), filled: new Map() };
   const today = () => new Date();
   let view = { year: today().getFullYear(), month: today().getMonth() };
+  let selectedDay = '';
 
   function el(tag, props, children) {
     const n = document.createElement(tag);
@@ -137,12 +138,47 @@
       const key = T.dayKey(date);
       const applied = counts.applied.get(key) || 0;
       const filled = counts.filled.get(key) || 0;
-      const cell = el('button', { type: 'button', class: 'day' + (key === todayKey ? ' today' : ''), 'data-day': key, 'aria-label': dayLabel(date, applied, filled) }, [
+      const cls = 'day' + (key === todayKey ? ' today' : '') + (key === selectedDay ? ' selected' : '');
+      const cell = el('button', { type: 'button', class: cls, 'data-day': key, 'aria-label': dayLabel(date, applied, filled), 'aria-pressed': String(key === selectedDay) }, [
         el('span', { class: 'num', text: String(date.getDate()) }),
         el('span', { class: 'applied' + (applied ? '' : ' zero'), text: String(applied) }),
         filled ? el('span', { class: 'filled', text: `${filled} filled` }) : null,
       ]);
+      cell.addEventListener('click', () => selectDay(key));
       grid.append(cell);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // A day's applications
+
+  function selectDay(key) {
+    selectedDay = selectedDay === key ? '' : key; // click again to close
+    renderCalendar();
+    renderDay();
+  }
+
+  function renderDay() {
+    const box = $('day-detail');
+    box.hidden = !selectedDay;
+    if (!selectedDay) return;
+    const date = T.fromKey(selectedDay);
+    const list = T.appsOnDay(apps, selectedDay);
+    $('day-title').textContent = date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+    $('day-empty').hidden = list.length > 0;
+    const rows = $('day-rows');
+    rows.replaceChildren();
+    for (const app of list) {
+      const href = safeHttpUrl(app.url);
+      rows.append(
+        el('tr', {}, [
+          el('td', { text: app.company || 'Unknown' }),
+          el('td', { text: app.title || '' }),
+          el('td', { class: 'id', text: app.jobId || '', title: app.jobId || '' }),
+          el('td', {}, [statusSelect(app)]),
+          el('td', {}, [href ? el('a', { href, target: '_blank', rel: 'noopener', text: 'Open' }) : el('span', { class: 'muted', text: '—' })]),
+        ])
+      );
     }
   }
 
@@ -162,6 +198,7 @@
   function render() {
     counts = T.countsByDay(apps);
     renderCalendar();
+    renderDay();
     renderAll();
   }
 

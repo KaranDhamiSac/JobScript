@@ -114,3 +114,6 @@ td.id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 
 .day .applied { font-size: 20px; font-weight: 700; line-height: 1.1; }
 .day .applied.zero { color: var(--border); font-weight: 400; }
 .day .filled { font-size: 11px; color: var(--filled); }
+
+.day-detail { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.day-detail h3 { font-size: 14px; margin: 0 0 8px; }

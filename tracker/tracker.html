@@ -23,6 +23,14 @@
         <span class="legend small"><span class="applied-dot"></span> applied <span class="filled-dot"></span> filled, not applied yet</span>
       </div>
       <div id="calendar" class="calendar" role="grid" aria-labelledby="month-label"></div>
+      <div id="day-detail" class="day-detail" hidden>
+        <h3 id="day-title"></h3>
+        <table>
+          <thead><tr><th>Company</th><th>Role</th><th>Job ID</th><th>Status</th><th>Link</th></tr></thead>
+          <tbody id="day-rows"></tbody>
+        </table>
+        <p id="day-empty" class="muted small" hidden>Nothing that day.</p>
+      </div>
     </section>
 
     <section id="all-section">
