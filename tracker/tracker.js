@@ -9,6 +9,7 @@
   const today = () => new Date();
   let view = { year: today().getFullYear(), month: today().getMonth() };
   let selectedDay = '';
+  let goal = 5; // daily goal; the stats section makes it editable
 
   function el(tag, props, children) {
     const n = document.createElement(tag);
@@ -150,6 +151,73 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Yearly heatmap (GitHub style): one cell per day, darker for more applications.
+
+  const CELL = 15; // cell width plus gap, in px; matches tracker.css
+
+  function plural(n, word) {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
+  }
+
+  function renderHeatmap() {
+    const grid = $('heat-grid');
+    const months = $('heat-months');
+    grid.replaceChildren();
+    months.replaceChildren();
+    const weeks = T.heatmapWeeks(today());
+    let total = 0;
+    let lastMonth = -1;
+    weeks.forEach((week, w) => {
+      const firstDay = week.find(Boolean);
+      // Label a column when a new month starts in it (skip a label squeezed at the far left).
+      if (firstDay && firstDay.getMonth() !== lastMonth) {
+        lastMonth = firstDay.getMonth();
+        if (w > 0 || firstDay.getDate() <= 7) {
+          const span = el('span', { text: firstDay.toLocaleDateString(undefined, { month: 'short' }) });
+          span.style.left = `${w * CELL}px`;
+          months.append(span);
+        }
+      }
+      for (const date of week) {
+        if (!date) {
+          grid.append(el('i', { class: 'cell empty', 'aria-hidden': 'true' }));
+          continue;
+        }
+        const key = T.dayKey(date);
+        const n = counts.applied.get(key) || 0;
+        total += n;
+        const label = `${date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}: ${plural(n, 'application')}`;
+        const cell = el('button', { type: 'button', class: `cell l${T.level(n, goal)}`, 'aria-label': label, 'data-tip': label });
+        cell.addEventListener('click', () => {
+          view = { year: date.getFullYear(), month: date.getMonth() };
+          selectedDay = '';
+          selectDay(key);
+          $('calendar-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        });
+        grid.append(cell);
+      }
+    });
+    $('heat-title').textContent = `${plural(total, 'application')} in the past year`;
+  }
+
+  // Tooltip that follows the hovered (or focused) cell.
+  function showTip(target) {
+    const tip = $('heat-tip');
+    if (!target || !target.dataset || !target.dataset.tip) return void (tip.hidden = true);
+    tip.textContent = target.dataset.tip;
+    tip.hidden = false;
+    const r = target.getBoundingClientRect();
+    const w = tip.offsetWidth;
+    tip.style.left = `${Math.max(4, Math.min(window.innerWidth - w - 4, r.left + r.width / 2 - w / 2))}px`;
+    tip.style.top = `${Math.max(4, r.top - tip.offsetHeight - 6)}px`;
+  }
+  $('heat-grid').addEventListener('mouseover', (e) => showTip(e.target));
+  $('heat-grid').addEventListener('focusin', (e) => showTip(e.target));
+  $('heat-grid').addEventListener('mouseleave', () => showTip(null));
+  $('heat-grid').addEventListener('focusout', () => showTip(null));
+  window.addEventListener('scroll', () => showTip(null), { passive: true });
+
+  // ---------------------------------------------------------------------------
   // A day's applications
 
   function selectDay(key) {
@@ -197,6 +265,7 @@
 
   function render() {
     counts = T.countsByDay(apps);
+    renderHeatmap();
     renderCalendar();
     renderDay();
     renderAll();
