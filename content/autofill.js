@@ -396,7 +396,7 @@
       case 'checkbox':
         return !el.checked;
       case 'file':
-        return !el.files || el.files.length === 0;
+        return (!el.files || el.files.length === 0) && !attachmentShown(el);
       case 'select': {
         const opt = el.options[el.selectedIndex];
         return !opt || !el.value || isPlaceholderOption(clean(opt.textContent));
@@ -417,6 +417,27 @@
       default:
         return !clean(el.value);
     }
+  }
+
+  // Many portals keep the file input after an upload (or after you come back to a step) and show
+  // the attached file next to it instead: "Attached: resume.pdf  Remove".
+  const ATTACHED_FILE = /[\w)\]-]\.(pdf|docx?|rtf|odt|txt|pages)\b/i;
+  const REMOVE_FILE = /^(remove|delete|replace|change)( (file|attachment|resume|document))?$/i;
+
+  function attachmentShown(input) {
+    let box = input.parentElement;
+    for (let d = 0; box && d < 3; d++) {
+      const parent = box.parentElement;
+      // Stay inside the upload widget: stop before reaching other questions.
+      if (!parent || parent.querySelectorAll('input:not([type="hidden"]), select, textarea').length > 1) break;
+      box = parent;
+    }
+    if (!box) return false;
+    const text = clean(box.textContent);
+    if (ATTACHED_FILE.test(text)) return true;
+    return [...box.querySelectorAll('button, a, [role="button"]')].some(
+      (b) => isVisible(b) && REMOVE_FILE.test(clean(b.textContent) || clean(b.getAttribute('aria-label')))
+    );
   }
 
   function isRequired(f) {
@@ -1423,7 +1444,7 @@
     if (session.forceResume && f.kind === 'file' && f.match && f.match.key === 'resume') f.empty = true;
     f.prefilled = !f.empty;
     if (f.prefilled) {
-      setStatus(f, 'filled', 'Already had a value', { noHighlight: true });
+      setStatus(f, 'filled', f.kind === 'file' ? 'A file is already attached' : 'Already had a value', { noHighlight: true });
       return 'already';
     }
     const pct = f.match ? `${Math.round(f.match.confidence * 100)}% match` : '';
