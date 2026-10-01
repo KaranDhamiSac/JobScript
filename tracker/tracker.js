@@ -3,7 +3,11 @@
 (function () {
   const S = JobScriptStorage;
   const $ = (id) => document.getElementById(id);
+  const T = TrackerStats;
   let apps = [];
+  let counts = { applied: new Map(), filled: new Map() };
+  const today = () => new Date();
+  let view = { year: today().getFullYear(), month: today().getMonth() };
 
   function el(tag, props, children) {
     const n = document.createElement(tag);
@@ -109,7 +113,55 @@
     saveBlob(new Blob([csv], { type: 'text/csv' }), `jobscript-applications-${TrackerStats.dayKey(new Date())}.csv`);
   });
 
+  // ---------------------------------------------------------------------------
+  // Month view
+
+  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  function dayLabel(date, applied, filled) {
+    const when = date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+    return `${when}: ${applied} applied${filled ? `, ${filled} filled` : ''}`;
+  }
+
+  function renderCalendar() {
+    const grid = $('calendar');
+    grid.replaceChildren();
+    $('month-label').textContent = new Date(view.year, view.month, 1).toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+    for (const w of WEEKDAYS) grid.append(el('div', { class: 'weekday', text: w }));
+    const todayKey = T.dayKey(today());
+    for (const date of T.monthGrid(view.year, view.month).flat()) {
+      if (!date) {
+        grid.append(el('div', { class: 'day blank', 'aria-hidden': 'true' }));
+        continue;
+      }
+      const key = T.dayKey(date);
+      const applied = counts.applied.get(key) || 0;
+      const filled = counts.filled.get(key) || 0;
+      const cell = el('button', { type: 'button', class: 'day' + (key === todayKey ? ' today' : ''), 'data-day': key, 'aria-label': dayLabel(date, applied, filled) }, [
+        el('span', { class: 'num', text: String(date.getDate()) }),
+        el('span', { class: 'applied' + (applied ? '' : ' zero'), text: String(applied) }),
+        filled ? el('span', { class: 'filled', text: `${filled} filled` }) : null,
+      ]);
+      grid.append(cell);
+    }
+  }
+
+  function shiftMonth(delta) {
+    const d = new Date(view.year, view.month + delta, 1);
+    view = { year: d.getFullYear(), month: d.getMonth() };
+    renderCalendar();
+  }
+
+  $('prev-month').addEventListener('click', () => shiftMonth(-1));
+  $('next-month').addEventListener('click', () => shiftMonth(1));
+  $('this-month').addEventListener('click', () => {
+    view = { year: today().getFullYear(), month: today().getMonth() };
+    renderCalendar();
+  });
+
   function render() {
+    counts = T.countsByDay(apps);
+    renderCalendar();
     renderAll();
   }
 

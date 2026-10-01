@@ -13,6 +13,18 @@
       <button id="export-csv" type="button" class="secondary">Export CSV</button>
     </header>
 
+    <section id="calendar-section">
+      <div class="cal-head">
+        <button id="prev-month" type="button" class="secondary" aria-label="Previous month">‹</button>
+        <h2 id="month-label" aria-live="polite"></h2>
+        <button id="next-month" type="button" class="secondary" aria-label="Next month">›</button>
+        <button id="this-month" type="button" class="secondary">Today</button>
+        <span class="spacer"></span>
+        <span class="legend small"><span class="applied-dot"></span> applied <span class="filled-dot"></span> filled, not applied yet</span>
+      </div>
+      <div id="calendar" class="calendar" role="grid" aria-labelledby="month-label"></div>
+    </section>
+
     <section id="all-section">
       <h2>All applications</h2>
       <p id="all-empty" class="muted" hidden>No applications yet. They appear here when JobScript fills one.</p>
