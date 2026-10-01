@@ -135,7 +135,7 @@
       }, 0);
     };
     const targets = container ? [container] : els;
-    const types = f.kind === 'text' || f.kind === 'textarea' || f.kind === 'combobox' ? ['change', 'focusout'] : ['change'];
+    const types = ['text', 'textarea', 'combobox', 'listbox'].includes(f.kind) ? ['change', 'focusout'] : ['change'];
     for (const t of targets) {
       for (const type of types) {
         t.addEventListener(type, handler, true);

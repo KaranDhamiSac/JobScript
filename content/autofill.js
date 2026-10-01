@@ -124,6 +124,21 @@
     );
   }
 
+  // Dropdowns built from a div or button that opens a separate list of options (Material UI's
+  // Select, Headless UI's Listbox). The hidden input some of them keep is skipped elsewhere.
+  const LISTBOX_SELECTOR = '[role="combobox"]:not(input), [aria-haspopup="listbox"]:not(input)';
+
+  function isListboxButton(el) {
+    if (el.getAttribute('aria-disabled') === 'true') return false;
+    // A wrapper around a real input (react-select) is handled through that input.
+    return !el.querySelector('input:not([type="hidden"]):not([aria-hidden="true"]), select, textarea');
+  }
+
+  // Text shown in a listbox button; Material UI puts a zero-width space there when empty.
+  function listboxText(el) {
+    return clean((el.textContent || '').replace(/[\u200b\u200c\u200d\ufeff]/g, ''));
+  }
+
   // react-select style widgets: the input sits inside a "__control" div whose parent holds the menu.
   function comboContainer(el) {
     const control = el.closest('[class*="__control"], [class*="-control"]');
@@ -162,7 +177,9 @@
 
   function labelText(el) {
     const parts = [];
-    const labelledBy = textOfIds(el.getAttribute('aria-labelledby'));
+    // Material UI's Select lists its own id here too, which would add the chosen option.
+    const ids = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter((id) => id && id !== el.id);
+    const labelledBy = textOfIds(ids.join(' '));
     if (clean(labelledBy)) parts.push(labelledBy);
     if (!parts.length && el.labels && el.labels.length) {
       for (const l of el.labels) parts.push(textWithoutControls(l));
@@ -238,8 +255,12 @@
   function collectFields(root) {
     const out = [];
     const groups = new Map();
-    for (const el of root.querySelectorAll('input, select, textarea')) {
+    for (const el of root.querySelectorAll('input, select, textarea, ' + LISTBOX_SELECTOR)) {
       if (el.disabled) continue;
+      if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
+        if (isListboxButton(el)) out.push({ el, kind: 'listbox' });
+        continue;
+      }
       const type = (el.getAttribute('type') || '').toLowerCase();
       if (el.tagName === 'INPUT' && SKIP_INPUT_TYPES.has(type)) continue;
       if (el.readOnly && type !== 'file' && !isCombobox(el)) continue;
@@ -281,7 +302,7 @@
     }
 
     return out.filter((f) => {
-      if (f.kind === 'text' || f.kind === 'textarea' || f.kind === 'select' || f.kind === 'date' || f.kind === 'month') {
+      if (['text', 'textarea', 'select', 'listbox', 'date', 'month'].includes(f.kind)) {
         return isReallyVisible(f.el);
       }
       return (f.groupInputs || [f.el]).some((e) => isVisible(e) || isVisible(e.closest('label') || e.parentElement));
@@ -358,6 +379,10 @@
         const c = comboContainer(el);
         const chosen = c && c.querySelector('[class*="single-value"], [class*="multi-value"]');
         return !(chosen && clean(chosen.textContent)) && !clean(el.value);
+      }
+      case 'listbox': {
+        const t = listboxText(el);
+        return !t || isPlaceholderOption(t);
       }
       default:
         return !clean(el.value);
@@ -557,6 +582,10 @@
         const c = comboContainer(el);
         const chosen = c && c.querySelector('[class*="single-value"], [class*="multi-value"]');
         return chosen ? clean(chosen.textContent) : clean(el.value);
+      }
+      case 'listbox': {
+        const t = listboxText(el);
+        return t && !isPlaceholderOption(t) ? t : '';
       }
       default:
         return clean(el.value);
@@ -963,6 +992,64 @@
     keyEvent(el, 'ArrowDown', 40);
   }
 
+  // The open option list of a listbox button: the one it points to, else the visible one
+  // (Material UI renders it in a portal at the end of the page).
+  function listboxOptions(el) {
+    const id = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
+    let list = id && document.getElementById(id);
+    if (!list || !isVisible(list)) list = [...document.querySelectorAll('[role="listbox"]')].filter(isVisible).pop();
+    return list ? [...list.querySelectorAll('[role="option"]')].filter(isVisible) : [];
+  }
+
+  async function openListbox(el) {
+    const found = () => { const o = listboxOptions(el); return o.length ? o : null; };
+    if (el.getAttribute('aria-expanded') === 'true' && found()) return found();
+    // Material UI opens on mousedown, Headless UI on click; neither needs page focus.
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, button: 0, view: window }));
+    let opts = await waitFor(found, 400);
+    if (opts) return opts;
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, button: 0, view: window }));
+    el.click();
+    opts = await waitFor(found, 400);
+    if (opts) return opts;
+    el.focus();
+    keyEvent(el, 'ArrowDown', 40);
+    return waitFor(found, 400);
+  }
+
+  function closeListbox(el) {
+    const opts = listboxOptions(el);
+    const list = opts.length ? opts[0].closest('[role="listbox"]') : null;
+    keyEvent(list || el, 'Escape', 27);
+  }
+
+  async function fillListbox(f, value, allowWeak) {
+    const el = f.el;
+    const opts = await openListbox(el);
+    const pick = opts
+      ? pickOptionDetailed(opts.map((o) => ({ text: o.textContent, value: o.getAttribute('data-value') || '' })), value.text, value.hint)
+      : { index: -1, strong: false };
+    const weak = pick.index >= 0 && !pick.strong && !allowWeak;
+    if (pick.index < 0 || weak) {
+      if (opts) closeListbox(el);
+      return weak ? { weakPick: clean(opts[pick.index].textContent) } : false;
+    }
+    clickOption(opts[pick.index]);
+    await sleep(150);
+    if (listboxOptions(el).length && el.getAttribute('aria-expanded') === 'true') closeListbox(el);
+    el.blur();
+    return !isEmpty(f);
+  }
+
+  async function readListboxOptions(f) {
+    const opts = await openListbox(f.el);
+    const texts = opts ? opts.map((o) => clean(o.textContent)).filter((t) => t && !isPlaceholderOption(t)).slice(0, 100) : [];
+    if (opts) closeListbox(f.el);
+    await sleep(100);
+    f.el.blur();
+    return texts;
+  }
+
   async function fillCombobox(f, value, allowWeak) {
     const el = f.el;
     const choose = (opts) => pickOptionDetailed(opts.map((o) => ({ text: o.textContent, value: '' })), value.text, value.hint);
@@ -1034,6 +1121,7 @@
       case 'checkboxGroup': return fillChoiceGroup(f, value, allowWeak);
       case 'checkbox': return fillCheckbox(f.el, value);
       case 'combobox': return fillCombobox(f, value, allowWeak);
+      case 'listbox': return fillListbox(f, value, allowWeak);
       default: {
         const box = f.kind === 'text' && suggestionBox(f.el);
         return box ? fillAutocompleteText(f.el, value, box, allowWeak) : fillText(f.el, value.text);
@@ -1450,6 +1538,9 @@
     } else if (f.kind === 'combobox') {
       kind = 'choice';
       options = await readComboOptions(f);
+    } else if (f.kind === 'listbox') {
+      kind = 'choice';
+      options = await readListboxOptions(f);
     } else if (f.kind === 'textarea' || f.el.maxLength > 300) {
       kind = 'essay';
     }
