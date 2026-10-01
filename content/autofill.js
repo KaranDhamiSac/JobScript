@@ -1348,9 +1348,14 @@
     const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft);
     const actions = [{ label: 'Job description', onClick: () => chrome.runtime.sendMessage({ type: 'job-start' }) }];
     if (session.stepPending) actions.push({ label: 'Fill this step', primary: true, onClick: fillStep });
+    if (session.lastStep && session.lastStep.length) {
+      actions.push({ label: `Save last step (${session.lastStep.length})`, onClick: () => openReview(session.lastStep, 'Save your answers from the last step') });
+    }
+    actions.push({ label: 'Save answers', onClick: () => openReview(currentAnswers(), 'Save your answers on this step') });
     if (hasSuggestions) actions.push({ label: 'Accept all', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
       note: session.note,
+      review: session.review,
       toolbarActions: actions,
       onSelect: focusField,
       items: fields.map((f) => ({
@@ -1464,12 +1469,72 @@
       const answer = answerToSave(f, value);
       return { f, answer: dateRule ? D.describe(dateRule) : answer, dateRule: dateRule || '' };
     });
-    await S.saveCustomAnswers(rows.map((r) => ({ question: r.f.label, answer: r.answer, dateRule: r.dateRule })));
+    // Fields that match a profile entry (name, email, …) are covered by the profile already.
+    const global = rows.filter((r) => !(r.f.match && r.f.match.c));
+    if (global.length) await S.saveCustomAnswers(global.map((r) => ({ question: r.f.label, answer: r.answer, dateRule: r.dateRule })));
     await S.saveSiteAnswers(
       location.origin,
       rows.map((r) => ({ key: r.f.siteKey, label: r.f.label, kind: r.f.kind, answer: r.answer, dateRule: r.dateRule }))
     );
     for (const r of rows) siteFields[r.f.siteKey] = { answer: r.answer, dateRule: r.dateRule };
+  }
+
+  // Fields whose answers may be saved: not uploads, checkboxes (consent is yours to give each
+  // time), demographic or reference questions, or anything sensitive.
+  function saveable(f) {
+    return (
+      f.kind !== 'file' &&
+      f.kind !== 'checkbox' &&
+      f.category !== 'eeo' &&
+      f.category !== 'references' &&
+      f.label &&
+      f.label !== '(unlabeled field)' &&
+      !FM.sensitiveLabel.test(f.label) &&
+      !AI_EXCLUDE_LABEL.test(f.label)
+    );
+  }
+
+  // [{ f, value }] for the answered, saveable fields among these.
+  function answersOf(fields) {
+    return fields
+      .filter(saveable)
+      .map((f) => ({ f, value: currentValueText(f) }))
+      .filter((a) => a.value);
+  }
+
+  function currentAnswers() {
+    return answersOf(analyze(findRoot().root, session.profile));
+  }
+
+  function alreadySaved(f, value) {
+    const saved = siteFields[f.siteKey];
+    return !!saved && norm(answerToSave(f, savedValue(saved))) === norm(answerToSave(f, value));
+  }
+
+  // Show the answers in the panel with a checkbox each; answers already saved for this site
+  // start unticked.
+  function openReview(answers, title) {
+    session.review = {
+      title,
+      rows: answers.map((a, i) => {
+        const saved = alreadySaved(a.f, a.value);
+        return { id: i, label: a.f.label, value: preview(a.value), checked: !saved, note: saved ? 'already saved' : '', dateChoices: dateChoices(a.f, a.value) };
+      }),
+      onCancel: () => {
+        session.review = null;
+        renderPanel();
+      },
+      onSave: async (picked) => {
+        await saveAnswers(picked.map((p) => Object.assign({}, answers[p.id], { dateRule: p.dateRule })));
+        if (answers === session.lastStep) session.lastStep = null;
+        session.review = null;
+        session.note = picked.length
+          ? `Saved ${picked.length} answer${picked.length === 1 ? '' : 's'} for this site and to your bank.`
+          : 'Nothing saved.';
+        renderPanel();
+      },
+    };
+    renderPanel();
   }
 
   // Offer "Save to bank" when you answer a field JobScript left for you.
@@ -1667,12 +1732,12 @@
   // Continue, often without loading a new page. JobScript never presses Continue; it notices
   // the new step and offers "Fill this step" in the panel.
 
-  let stepEls = []; // the fields of the step last filled or detected
+  let stepFields = []; // the fields of the step last filled or detected
   let stepUrl = '';
   let stepWatcher = null;
 
   function rememberStep() {
-    stepEls = collectFields(findRoot().root).map((f) => f.el);
+    stepFields = analyze(findRoot().root, session.profile);
     stepUrl = location.href;
   }
 
@@ -1680,19 +1745,22 @@
   // of the step's fields are gone, and new fields have appeared.
   function checkStepChange() {
     if (!session || session.stepPending === undefined) return false;
-    const gone = stepEls.filter((el) => !el.isConnected).length;
+    const gone = stepFields.filter((f) => !f.el.isConnected).length;
     const urlChanged = location.href !== stepUrl;
-    if (!urlChanged && !(stepEls.length && gone / stepEls.length >= 0.5)) return false;
-    const fields = collectFields(findRoot().root);
-    const fresh = fields.filter((f) => !stepEls.includes(f.el));
+    if (!urlChanged && !(stepFields.length && gone / stepFields.length >= 0.5)) return false;
+    const els = stepFields.map((f) => f.el);
+    const fresh = collectFields(findRoot().root).filter((f) => !els.includes(f.el));
     if (!fresh.length) return false;
-    stepEls = fields.map((f) => f.el);
-    stepUrl = location.href;
-    onStepChange(fields.length);
+    // The step that just left the page still holds what you entered; keep it for saving.
+    const previous = answersOf(stepFields.filter((f) => !f.el.isConnected));
+    rememberStep();
+    onStepChange(stepFields.length, previous);
     return true;
   }
 
-  function onStepChange(count) {
+  function onStepChange(count, previous) {
+    session.lastStep = previous;
+    session.review = null;
     if (stopWatching) stopWatching();
     for (const [id, f] of registry) {
       if (!f.el.isConnected) {
@@ -1952,10 +2020,13 @@
       const step = !!(opts && opts.step);
       session = {
         site,
+        profile,
         note: tailored && !step ? `Attached your tailored resume (${tailored.name}). ` + DEFAULT_NOTE : DEFAULT_NOTE,
         forceResume: !!tailored && !step,
         tailoredId,
         stepPending: false,
+        lastStep: step && session ? session.lastStep : null,
+        review: null,
       };
       Object.assign(session, (({ title, company }) => ({ jobTitle: title, company }))(titleAndCompany()));
       await ensureEntries(root, profile);
