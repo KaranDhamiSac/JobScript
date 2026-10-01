@@ -554,12 +554,22 @@
     return match;
   }
 
+  // Answers saved for this site's field come first. If the field showed a profile entry when it
+  // was saved, your current profile value is used instead, when it has one.
   function matchField(f, profile) {
-    const d = f.desc;
     const site = f.kind !== 'file' && siteFields[f.siteKey];
+    if (site && site.profileKey) {
+      const m = matchProfile(f, profile);
+      if (m && m.source === site.profileKey && (m.section || m.raw)) return withConfidence(m, Math.max(m.confidence, 0.97));
+    }
     if (site && savedValue(site)) {
       return withConfidence({ source: 'saved for this site', type: 'text', raw: savedValue(site) }, 0.97);
     }
+    return matchProfile(f, profile);
+  }
+
+  function matchProfile(f, profile) {
+    const d = f.desc;
     const custom = f.kind === 'file' ? null : bestCustomAnswer(d.labelRaw, profile.customAnswers);
     if (custom && custom.score >= 0.9) {
       return withConfidence({ source: 'saved answer', type: 'text', raw: custom.answer }, 0.95);
@@ -1348,10 +1358,14 @@
     const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft);
     const actions = [{ label: 'Job description', onClick: () => chrome.runtime.sendMessage({ type: 'job-start' }) }];
     if (session.stepPending) actions.push({ label: 'Fill this step', primary: true, onClick: fillStep });
-    if (session.lastStep && session.lastStep.length) {
-      actions.push({ label: `Save last step (${session.lastStep.length})`, onClick: () => openReview(session.lastStep, 'Save your answers from the last step') });
+    if (session.learning) {
+      actions.push({ label: 'Finish learning', onClick: finishLearning });
+    } else {
+      if (session.lastStep && session.lastStep.length) {
+        actions.push({ label: `Save last step (${session.lastStep.length})`, onClick: () => openReview(session.lastStep, 'Save your answers from the last step') });
+      }
+      actions.push({ label: 'Save answers', onClick: () => openReview(currentAnswers(), 'Save your answers on this step') });
     }
-    actions.push({ label: 'Save answers', onClick: () => openReview(currentAnswers(), 'Save your answers on this step') });
     if (hasSuggestions) actions.push({ label: 'Accept all', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
       note: session.note,
@@ -1469,14 +1483,15 @@
       const answer = answerToSave(f, value);
       return { f, answer: dateRule ? D.describe(dateRule) : answer, dateRule: dateRule || '' };
     });
+    const profileKey = (f) => (f.match && f.match.c ? f.match.source : '');
     // Fields that match a profile entry (name, email, …) are covered by the profile already.
     const global = rows.filter((r) => !(r.f.match && r.f.match.c));
     if (global.length) await S.saveCustomAnswers(global.map((r) => ({ question: r.f.label, answer: r.answer, dateRule: r.dateRule })));
     await S.saveSiteAnswers(
       location.origin,
-      rows.map((r) => ({ key: r.f.siteKey, label: r.f.label, kind: r.f.kind, answer: r.answer, dateRule: r.dateRule }))
+      rows.map((r) => ({ key: r.f.siteKey, label: r.f.label, kind: r.f.kind, answer: r.answer, dateRule: r.dateRule, profileKey: profileKey(r.f) }))
     );
-    for (const r of rows) siteFields[r.f.siteKey] = { answer: r.answer, dateRule: r.dateRule };
+    for (const r of rows) siteFields[r.f.siteKey] = { answer: r.answer, dateRule: r.dateRule, profileKey: profileKey(r.f) };
   }
 
   // Fields whose answers may be saved: not uploads, checkboxes (consent is yours to give each
@@ -1556,6 +1571,11 @@
       save: (value, dateRule) => saveAnswers([{ f, value, dateRule }]),
       dateChoices: (value) => dateChoices(f, value),
       onUserValue: (value) => {
+        if (session && session.learning) {
+          setStatus(f, 'filled', 'Filled by you · learned', { noHighlight: true });
+          renderPanel();
+          return true;
+        }
         if (session && session.autoSave) {
           saveAnswers(autoSaveItems([{ f, value }])).then(() => {
             setStatus(f, 'filled', 'Filled by you · saved', { noHighlight: true });
@@ -1757,6 +1777,17 @@
   function rememberStep() {
     stepFields = analyze(findRoot().root, session.profile);
     stepUrl = location.href;
+    session.stepTitle = stepTitleNow();
+    if (session.learning) recordStep();
+    session.stepIndex = learnedStepIndex(stepFields);
+  }
+
+  // The step's heading, e.g. "Documents"; '' if there's none.
+  function stepTitleNow() {
+    const h = [...findRoot().root.querySelectorAll('h1, h2, h3, h4, legend, [role="heading"]')].find(
+      (n) => isVisible(n) && clean(n.textContent) && clean(n.textContent).length <= 80
+    );
+    return h ? clean(h.textContent) : '';
   }
 
   // True (once per step) when the form now shows a different step: the address changed or most
@@ -1771,8 +1802,9 @@
     if (!fresh.length) return false;
     // The step that just left the page still holds what you entered; keep it for saving.
     const previous = answersOf(stepFields.filter((f) => !f.el.isConnected));
+    if (session.learning) learnAnswers(previous);
     rememberStep();
-    onStepChange(stepFields.length, previous);
+    onStepChange(stepFields.length, session.learning ? [] : previous);
     return true;
   }
 
@@ -1797,7 +1829,107 @@
       }
     }
     session.stepPending = true;
-    session.note = `New step: ${count} field${count === 1 ? '' : 's'}. Press “Fill this step” when you’re ready. ` + DEFAULT_NOTE;
+    session.note = stepNote(count);
+    renderPanel();
+  }
+
+  function stepNote(count) {
+    const title = session.stepTitle ? ` (${session.stepTitle})` : '';
+    if (session.learning) {
+      return `Learning this site: step ${session.steps.length}${title}. Answer it, then press Continue; JobScript saves what you enter. ` +
+        'Press “Finish learning” after the last step.';
+    }
+    if (session.stepIndex >= 0) {
+      return `Step ${session.stepIndex + 1} of ${session.steps.length} you taught JobScript${title}. ` +
+        'Press “Fill this step” to fill it the way you did. ' + DEFAULT_NOTE;
+    }
+    return `New step: ${count} field${count === 1 ? '' : 's'}. Press “Fill this step” when you’re ready. ` + DEFAULT_NOTE;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Learn mode: you fill a site's form once, step by step, and JobScript records each step and
+  // your answers for that site (see S.setSiteLearning). Later, each step fills the same way.
+
+  function sameKeys(a, b) {
+    return a.length === b.length && a.every((k) => b.includes(k));
+  }
+
+  function recordStep() {
+    const keys = stepFields.filter(saveable).map((f) => f.siteKey);
+    if (!keys.length || session.steps.some((st) => sameKeys(st.keys, keys))) return;
+    const step = { title: session.stepTitle, keys };
+    session.steps.push(step);
+    S.addSiteStep(location.origin, step);
+  }
+
+  // Which learned step these fields belong to: the one sharing most of its fields; -1 if none.
+  function learnedStepIndex(fields) {
+    const keys = new Set(fields.map((f) => f.siteKey));
+    let best = -1;
+    let bestShare = 0.5;
+    (session.steps || []).forEach((st, i) => {
+      const share = st.keys.filter((k) => keys.has(k)).length / st.keys.length;
+      if (share >= bestShare) {
+        best = i;
+        bestShare = share;
+      }
+    });
+    return best;
+  }
+
+  // Save every answer, replacing what was saved before; dates get the rule that gives the same
+  // date today, or the date itself.
+  function learnAnswers(answers) {
+    const items = answers.map((a) => {
+      const dc = dateChoices(a.f, a.value);
+      return Object.assign({}, a, { dateRule: dc ? dc.selected : '' });
+    });
+    return items.length ? saveAnswers(items) : Promise.resolve();
+  }
+
+  // While learning, save each answer as you give it, so nothing is lost if the next step
+  // loads a new page.
+  let stopLearnWatch = null;
+
+  function watchAnswersWhileLearning() {
+    if (stopLearnWatch) return;
+    let timer = null;
+    const pending = new Set();
+    const flush = () => {
+      const fields = [...pending];
+      pending.clear();
+      learnAnswers(answersOf(fields.filter((f) => f.el.isConnected)));
+    };
+    const onEvent = (e) => {
+      if (!e.isTrusted || !session || !session.learning) return;
+      const t = e.target;
+      const f = stepFields.find((x) => (x.groupInputs || [x.el]).some((el) => el === t || (el.contains && el.contains(t))));
+      if (!f) return;
+      pending.add(f);
+      clearTimeout(timer);
+      timer = setTimeout(flush, 300);
+    };
+    const onLeave = () => {
+      if (session && session.learning) learnAnswers(answersOf(stepFields.filter((f) => f.el.isConnected)));
+    };
+    for (const type of ['change', 'focusout']) document.addEventListener(type, onEvent, true);
+    window.addEventListener('pagehide', onLeave);
+    stopLearnWatch = () => {
+      for (const type of ['change', 'focusout']) document.removeEventListener(type, onEvent, true);
+      window.removeEventListener('pagehide', onLeave);
+      clearTimeout(timer);
+      stopLearnWatch = null;
+    };
+  }
+
+  async function finishLearning() {
+    if (!session || !session.learning) return;
+    await learnAnswers(answersOf(stepFields.filter((f) => f.el.isConnected)));
+    await S.setSiteLearning(location.origin, false);
+    session.learning = false;
+    if (stopLearnWatch) stopLearnWatch();
+    const n = session.steps.length;
+    session.note = `Learned ${n} step${n === 1 ? '' : 's'} on this site. Next time, press “Fill this step” on each one to fill it the way you did.`;
     renderPanel();
   }
 
@@ -2038,6 +2170,10 @@
         S.getAnswerSettings(),
       ]);
       siteFields = saved.fields;
+      if (opts && opts.learn && !saved.learning) {
+        await S.setSiteLearning(location.origin, true);
+        Object.assign(saved, { learning: true, steps: [] });
+      }
       const resume = tailored || master;
       // Pages that render their form after load (React apps) may not have fields yet.
       if (!collectFields(findRoot().root).length) await waitFor(() => collectFields(findRoot().root).length > 0, 3000);
@@ -2051,6 +2187,9 @@
         site,
         profile,
         autoSave: answerSettings.autoSave,
+        learning: saved.learning,
+        steps: saved.steps,
+        stepIndex: -1,
         note: tailored && !step ? `Attached your tailored resume (${tailored.name}). ` + DEFAULT_NOTE : DEFAULT_NOTE,
         forceResume: !!tailored && !step,
         tailoredId,
@@ -2074,6 +2213,13 @@
       }
       rememberStep();
       watchSteps();
+      if (session.learning) {
+        watchAnswersWhileLearning();
+        session.note = stepNote(s.found);
+      } else if (session.stepIndex >= 0) {
+        const title = session.stepTitle ? ` (${session.stepTitle})` : '';
+        session.note = `Filled step ${session.stepIndex + 1} of ${session.steps.length}${title} the way you did. ` + DEFAULT_NOTE;
+      }
       renderPanel();
       aiQuestions = await prepareAiQuestions();
       if (aiQuestions) {
@@ -2088,6 +2234,43 @@
     }
   }
 
+  // On a site you taught JobScript, or are teaching it, show the panel when the form loads,
+  // without filling anything until you press "Fill this step".
+  async function autoStart() {
+    let saved;
+    try {
+      saved = await S.getSiteAnswers(location.origin);
+    } catch (e) {
+      return;
+    }
+    if (!saved.learning && !saved.steps.length) return;
+    if (!(await waitFor(() => collectFields(findRoot().root).length > 0, 8000))) return;
+    const [profile, answerSettings] = await Promise.all([S.getProfile(), S.getAnswerSettings()]);
+    if (session || running) return; // a fill started meanwhile
+    siteFields = saved.fields;
+    session = {
+      site: findRoot().site,
+      profile,
+      autoSave: answerSettings.autoSave,
+      learning: saved.learning,
+      steps: saved.steps,
+      stepIndex: -1,
+      note: '',
+      forceResume: false,
+      tailoredId: '',
+      stepPending: true,
+      lastStep: null,
+      review: null,
+    };
+    Object.assign(session, (({ title, company }) => ({ jobTitle: title, company }))(titleAndCompany()));
+    rememberStep();
+    watchSteps();
+    if (session.learning) watchAnswersWhileLearning();
+    session.note = stepNote(stepFields.length);
+    renderPanel();
+  }
+
   globalThis.__jobscriptFill = fillPage;
   globalThis.__jobscriptJobPosting = jobPosting;
+  autoStart();
 })();
