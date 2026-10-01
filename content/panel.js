@@ -7,6 +7,9 @@
 //   JobScriptPanel.render({ summary, note, items, onSelect })
 //   items: [{ id, category, label, status: 'filled'|'suggested'|'needs', detail, required,
 //             draft, actions: [{ label, primary, onClick }] }]
+//   review (optional, replaces the list): { title, rows, onSave, onCancel }
+//     rows: [{ id, label, value, checked, note, dateChoices: { choices: [{ rule, label }], selected } }]
+//     onSave([{ id, dateRule }]) gets the ticked rows.
 (function () {
   if (globalThis.JobScriptPanel) return;
 
@@ -36,7 +39,7 @@
     .count { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
     .note { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
     .note:empty { display: none; }
-    .toolbar { display: flex; gap: 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
     .toolbar label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
     .toolbar .spacer { flex: 1; }
     .body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -63,6 +66,13 @@
     .btn:disabled { opacity: .5; cursor: default; }
     .collapsed .body { display: none; }
     .empty { padding: 12px; color: var(--muted); }
+    .review { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+    .review-title { padding: 8px 12px 2px; font-weight: 600; }
+    .row { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; padding: 6px 12px; }
+    .row:hover { background: var(--hover); }
+    .row input { margin: 2px 0 0; }
+    .row .value { grid-column: 2; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .row select { grid-column: 2; margin-top: 3px; font: inherit; font-size: 12px; max-width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; }
   `;
 
   let host = null;
@@ -193,6 +203,13 @@
 
     const body = el('div', { class: 'body' });
     body.appendChild(el('div', { class: 'note', text: state.note || '' }));
+    if (state.review) {
+      body.appendChild(drawReview(state.review));
+      panel.appendChild(body);
+      shadow.replaceChildren(panel);
+      ensureStyles();
+      return;
+    }
 
     const toolbar = el('div', { class: 'toolbar' });
     const hide = el('input', { type: 'checkbox' });
@@ -235,9 +252,52 @@
     const scrollTop = oldList ? oldList.scrollTop : 0;
     shadow.replaceChildren(panel);
     list.scrollTop = scrollTop;
+    ensureStyles();
+  }
+
+  // Without constructable stylesheets the <style> element is replaced along with the content.
+  function ensureStyles() {
     if (!shadow.adoptedStyleSheets || !shadow.adoptedStyleSheets.length) {
       if (!shadow.querySelector('style')) shadow.prepend(el('style', { text: CSS }));
     }
+  }
+
+  // A list of answers to tick before saving them.
+  function drawReview(review) {
+    const wrap = el('div', { class: 'review' });
+    const bar = el('div', { class: 'toolbar' });
+    const list = el('div', { class: 'list' });
+    const rows = [];
+    for (const r of review.rows) {
+      const box = el('input', { type: 'checkbox', 'aria-label': r.label });
+      box.checked = !!r.checked;
+      const row = el('label', { class: 'row' }, [box, el('span', { class: 'label', text: r.label, title: r.label })]);
+      row.appendChild(el('span', { class: 'value', text: r.value + (r.note ? ' · ' + r.note : '') }));
+      let select = null;
+      if (r.dateChoices) {
+        select = el('select', { 'aria-label': 'How to answer “' + r.label + '” next time' });
+        for (const c of r.dateChoices.choices) select.append(new Option(c.label, c.rule, false, c.rule === r.dateChoices.selected));
+        row.appendChild(select);
+      }
+      rows.push({ id: r.id, box, select });
+      list.appendChild(row);
+    }
+    if (!rows.length) list.appendChild(el('div', { class: 'empty', text: 'No answers to save on this step.' }));
+    const save = el('button', { class: 'btn primary', text: 'Save selected' });
+    save.addEventListener('click', trusted(async () => {
+      save.disabled = true;
+      try {
+        await review.onSave(rows.filter((r) => r.box.checked).map((r) => ({ id: r.id, dateRule: r.select ? r.select.value : '' })));
+      } finally {
+        save.disabled = false;
+      }
+    }));
+    bar.appendChild(el('span', { text: `${review.rows.length} answer${review.rows.length === 1 ? '' : 's'}` }));
+    bar.appendChild(el('span', { class: 'spacer' }));
+    bar.appendChild(el('button', { class: 'btn', text: 'Cancel', onclick: trusted(() => review.onCancel()) }));
+    bar.appendChild(save);
+    wrap.append(el('div', { class: 'review-title', text: review.title }), bar, list);
+    return wrap;
   }
 
   globalThis.JobScriptPanel = {
