@@ -139,6 +139,29 @@
     return clean((el.textContent || '').replace(/[\u200b\u200c\u200d\ufeff]/g, ''));
   }
 
+  // Text boxes for a whole date, told apart by a placeholder such as "mm/dd/yyyy".
+  const DATE_PLACEHOLDER = /^\s*(mm|dd|yyyy)\s*[-/.]\s*(mm|dd|yyyy)\s*[-/.]\s*(mm|dd|yyyy)\s*$/i;
+
+  // Date fields split into Month / Day / Year sections you type into (Material UI's newer date
+  // pickers). Returns { month, day, year } section elements, or null if el isn't one.
+  function dateSections(group) {
+    const spins = [...group.querySelectorAll('[role="spinbutton"]')];
+    if (spins.length !== 3) return null;
+    const parts = {};
+    for (const s of spins) {
+      const part = /month/i.test(s.getAttribute('aria-label')) ? 'month'
+        : /day/i.test(s.getAttribute('aria-label')) ? 'day'
+        : /year/i.test(s.getAttribute('aria-label')) ? 'year' : null;
+      if (!part || parts[part]) return null;
+      parts[part] = s;
+    }
+    return parts;
+  }
+
+  function sectionEmpty(s) {
+    return s.getAttribute('aria-valuetext') === 'Empty' || !/\d/.test(s.textContent);
+  }
+
   // react-select style widgets: the input sits inside a "__control" div whose parent holds the menu.
   function comboContainer(el) {
     const control = el.closest('[class*="__control"], [class*="-control"]');
@@ -255,10 +278,12 @@
   function collectFields(root) {
     const out = [];
     const groups = new Map();
-    for (const el of root.querySelectorAll('input, select, textarea, ' + LISTBOX_SELECTOR)) {
+    for (const el of root.querySelectorAll('input, select, textarea, [role="group"], ' + LISTBOX_SELECTOR)) {
       if (el.disabled) continue;
       if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
-        if (isListboxButton(el)) out.push({ el, kind: 'listbox' });
+        if (el.getAttribute('role') === 'group') {
+          if (dateSections(el)) out.push({ el, kind: 'datesections' });
+        } else if (isListboxButton(el)) out.push({ el, kind: 'listbox' });
         continue;
       }
       const type = (el.getAttribute('type') || '').toLowerCase();
@@ -288,6 +313,7 @@
       else if (type === 'radio') kind = 'radio';
       else if (type === 'date' || type === 'month') kind = type;
       else if (isCombobox(el)) kind = 'combobox';
+      else if (DATE_PLACEHOLDER.test(el.getAttribute('placeholder') || '')) kind = 'datetext';
       else kind = 'text';
       const f = { el, kind };
       if (kind === 'radio') f.groupInputs = [el];
@@ -302,7 +328,7 @@
     }
 
     return out.filter((f) => {
-      if (['text', 'textarea', 'select', 'listbox', 'date', 'month'].includes(f.kind)) {
+      if (['text', 'textarea', 'select', 'listbox', 'date', 'month', 'datetext', 'datesections'].includes(f.kind)) {
         return isReallyVisible(f.el);
       }
       return (f.groupInputs || [f.el]).some((e) => isVisible(e) || isVisible(e.closest('label') || e.parentElement));
@@ -384,6 +410,10 @@
         const t = listboxText(el);
         return !t || isPlaceholderOption(t);
       }
+      case 'datesections': {
+        const parts = dateSections(el);
+        return !parts || Object.values(parts).some(sectionEmpty);
+      }
       default:
         return !clean(el.value);
     }
@@ -391,6 +421,7 @@
 
   function isRequired(f) {
     const els = f.groupInputs || [f.el];
+    if (f.kind === 'datesections') els.push(...f.el.querySelectorAll('input'));
     if (els.some((e) => e.required || e.getAttribute('aria-required') === 'true')) return true;
     return FM.requiredMarkers.some((re) => re.test(f.desc.labelRaw));
   }
@@ -404,11 +435,15 @@
   // ---------------------------------------------------------------------------
   // Matching fields to profile values
 
+  function isDateKind(kind) {
+    return kind === 'date' || kind === 'month' || kind === 'datetext' || kind === 'datesections';
+  }
+
   function compatible(ruleType, kind) {
     if (kind === 'file') return ruleType === 'file';
     if (ruleType === 'file') return false;
     if (kind === 'checkbox') return ruleType === 'bool';
-    if (kind === 'date' || kind === 'month') return ruleType === 'date';
+    if (isDateKind(kind)) return ruleType === 'date';
     return true;
   }
 
@@ -587,6 +622,11 @@
         const t = listboxText(el);
         return t && !isPlaceholderOption(t) ? t : '';
       }
+      case 'datesections': {
+        const parts = dateSections(el);
+        if (!parts || Object.values(parts).some(sectionEmpty)) return '';
+        return [parts.month, parts.day, parts.year].map((s) => clean(s.textContent)).join('/');
+      }
       default:
         return clean(el.value);
     }
@@ -680,16 +720,22 @@
   // ---------------------------------------------------------------------------
   // Value formatting and option picking
 
-  function parseYearMonth(raw) {
-    const m = /^(\d{4})-(\d{1,2})/.exec(raw || '');
-    return m ? { y: m[1], m: Number(m[2]) } : null;
+  // { y, m, d } from "2026-10-15", "2026-10" (d is null) or "10/15/2026".
+  function parseDate(raw) {
+    raw = String(raw || '').trim();
+    let m = /^(\d{4})-(\d{1,2})(?:-(\d{1,2}))?/.exec(raw);
+    if (m) return { y: m[1], m: Number(m[2]), d: m[3] ? Number(m[3]) : null };
+    m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
+    return m ? { y: m[3], m: Number(m[1]), d: Number(m[2]) } : null;
   }
 
   function formatWholeDate(ym, f) {
     const mm = String(ym.m).padStart(2, '0');
-    if (f.kind === 'date') return `${ym.y}-${mm}-01`;
+    const dd = String(ym.d || 1).padStart(2, '0');
+    if (f.kind === 'date' || f.kind === 'datesections') return `${ym.y}-${mm}-${dd}`;
     if (f.kind === 'month') return `${ym.y}-${mm}`;
     const ph = f.desc.placeholderRaw.toLowerCase();
+    if (DATE_PLACEHOLDER.test(ph)) return ph.replace(/\s+/g, '').replace('yyyy', ym.y).replace('mm', mm).replace('dd', dd);
     if (/yyyy[-/]mm/.test(ph)) return `${ym.y}-${mm}`;
     if (/mm[-/ ]dd[-/ ]yyyy/.test(ph)) return `${mm}/01/${ym.y}`;
     if (/mm[-/ ]yy\b/.test(ph)) return `${mm}/${ym.y.slice(2)}`;
@@ -700,9 +746,10 @@
   function resolveValue(f) {
     const raw = f.match.raw;
     if (!raw) return null;
-    if (f.match.type === 'date' || f.kind === 'date' || f.kind === 'month') {
-      const ym = parseYearMonth(raw);
-      if (!ym) return null;
+    if (f.match.type === 'date' || isDateKind(f.kind)) {
+      const ym = parseDate(raw);
+      if (!ym) return f.kind === 'datetext' ? { text: raw, hint: {} } : null;
+      if (f.kind === 'datesections') return { text: formatWholeDate(ym, f), hint: { date: ym } };
       if (f.datePart === 'month') {
         return { text: String(ym.m).padStart(2, '0'), hint: { month: ym.m } };
       }
@@ -1050,6 +1097,32 @@
     return texts;
   }
 
+  // Type a date into Month / Day / Year sections one digit at a time, the way the picker expects;
+  // setting a whole section at once is ignored. Sections are looked up again after each edit
+  // because the picker re-renders them.
+  async function fillDateSections(f, value) {
+    const date = value.hint.date;
+    if (!date) return false;
+    const digits = { month: String(date.m).padStart(2, '0'), day: String(date.d || 1).padStart(2, '0'), year: date.y };
+    for (const part of ['month', 'day', 'year']) {
+      let s = dateSections(f.el)[part];
+      s.focus();
+      s.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+      s.click();
+      await sleep(120);
+      for (const ch of digits[part]) {
+        s = dateSections(f.el)[part];
+        s.textContent = ch;
+        s.dispatchEvent(new InputEvent('input', { bubbles: true, data: ch, inputType: 'insertText' }));
+        await sleep(50);
+      }
+    }
+    const last = document.activeElement;
+    if (last && f.el.contains(last)) last.blur();
+    await sleep(80);
+    return !isEmpty(f);
+  }
+
   async function fillCombobox(f, value, allowWeak) {
     const el = f.el;
     const choose = (opts) => pickOptionDetailed(opts.map((o) => ({ text: o.textContent, value: '' })), value.text, value.hint);
@@ -1122,6 +1195,7 @@
       case 'checkbox': return fillCheckbox(f.el, value);
       case 'combobox': return fillCombobox(f, value, allowWeak);
       case 'listbox': return fillListbox(f, value, allowWeak);
+      case 'datesections': return fillDateSections(f, value);
       default: {
         const box = f.kind === 'text' && suggestionBox(f.el);
         return box ? fillAutocompleteText(f.el, value, box, allowWeak) : fillText(f.el, value.text);
@@ -1504,7 +1578,7 @@
       (f) =>
         f.el.isConnected &&
         f.status === 'needs' &&
-        !['file', 'checkbox', 'date', 'month'].includes(f.kind) &&
+        f.kind !== 'file' && f.kind !== 'checkbox' && !isDateKind(f.kind) &&
         f.category !== 'eeo' &&
         f.category !== 'references' &&
         f.label !== '(unlabeled field)' &&
