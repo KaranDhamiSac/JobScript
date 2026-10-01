@@ -625,6 +625,15 @@ const aiStatus = document.getElementById('ai-status');
 
 for (const m of S.AI_MODELS) aiModel.append(new Option(m.label, m.id));
 
+// ---------------------------------------------------------------------------
+// Saving answers
+
+const autoSave = document.getElementById('auto-save');
+S.getAnswerSettings().then((s) => {
+  autoSave.checked = s.autoSave;
+});
+autoSave.addEventListener('change', () => S.saveAnswerSettings({ autoSave: autoSave.checked }));
+
 async function renderAi(message) {
   const [settings, key] = await Promise.all([S.getAiSettings(), S.getApiKey()]);
   aiEnabled.checked = settings.enabled;
