@@ -234,6 +234,7 @@
     const list = T.appsOnDay(apps, selectedDay);
     $('day-title').textContent = date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     $('day-empty').hidden = list.length > 0;
+    box.querySelector('table').hidden = list.length === 0;
     const rows = $('day-rows');
     rows.replaceChildren();
     for (const app of list) {
@@ -250,18 +251,25 @@
     }
   }
 
+  // Changing month closes a selected day that isn't in the new month.
+  function showMonth(year, month) {
+    view = { year, month };
+    if (selectedDay) {
+      const d = T.fromKey(selectedDay);
+      if (d.getFullYear() !== year || d.getMonth() !== month) selectedDay = '';
+    }
+    renderCalendar();
+    renderDay();
+  }
+
   function shiftMonth(delta) {
     const d = new Date(view.year, view.month + delta, 1);
-    view = { year: d.getFullYear(), month: d.getMonth() };
-    renderCalendar();
+    showMonth(d.getFullYear(), d.getMonth());
   }
 
   $('prev-month').addEventListener('click', () => shiftMonth(-1));
   $('next-month').addEventListener('click', () => shiftMonth(1));
-  $('this-month').addEventListener('click', () => {
-    view = { year: today().getFullYear(), month: today().getMonth() };
-    renderCalendar();
-  });
+  $('this-month').addEventListener('click', () => showMonth(today().getFullYear(), today().getMonth()));
 
   function render() {
     counts = T.countsByDay(apps);
