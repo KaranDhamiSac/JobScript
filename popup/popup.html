@@ -11,12 +11,7 @@
     <button id="open-options" class="link" type="button">Edit profile</button>
   </header>
 
-  <nav class="tabs" role="tablist">
-    <button id="tab-fill" class="tab active" type="button" role="tab" aria-selected="true">Fill</button>
-    <button id="tab-apps" class="tab" type="button" role="tab" aria-selected="false">Applications</button>
-  </nav>
-
-  <div id="panel-fill" role="tabpanel">
+  <div id="panel-fill">
     <p id="profile-status" class="muted"></p>
 
     <button id="fill" class="primary" type="button">Fill this page</button>
@@ -29,12 +24,9 @@
     <p class="muted footnote">JobScript never submits. Review every field, then submit yourself.</p>
   </div>
 
-  <div id="panel-apps" role="tabpanel" hidden>
-    <div class="apps-head">
-      <span id="apps-count" class="muted"></span>
-      <button id="export-csv" class="link" type="button">Export CSV</button>
-    </div>
-    <ul id="apps" class="apps"></ul>
+  <div class="tracker-row">
+    <span id="today-progress" class="muted"></span>
+    <button id="open-tracker" class="link" type="button">Open tracker</button>
   </div>
 
   <script src="../lib/storage.js"></script>
