@@ -58,6 +58,7 @@
       "js": [
         "lib/storage.js",
         "lib/fieldMap.js",
+        "lib/dateRules.js",
         "content/panel.js",
         "content/bank.js",
         "content/autofill.js"

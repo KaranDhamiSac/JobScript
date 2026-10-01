@@ -521,11 +521,26 @@
   function bestCustomAnswer(labelRaw, answers) {
     let best = null;
     for (const a of answers) {
-      if (!a.question || !a.answer) continue;
+      if (!a.question || !(a.answer || a.dateRule)) continue;
       const score = similarity(labelRaw, a.question);
-      if (!best || score > best.score) best = { answer: a.answer, score };
+      if (!best || score > best.score) best = { answer: savedValue(a), score };
     }
-    return best;
+    return best && best.answer ? best : null;
+  }
+
+  // A saved answer's value today: a date rule ("2 weeks from today") becomes a date.
+  function savedValue(a) {
+    return a.dateRule && globalThis.JobScriptDates.isRule(a.dateRule) ? globalThis.JobScriptDates.resolve(a.dateRule) : a.answer;
+  }
+
+  // Answers saved for this site's exact fields (see S.getSiteAnswers), loaded at each fill.
+  let siteFields = {};
+
+  // Identifies a field on this site across visits: its kind, label, a name or id that doesn't
+  // look generated, and which occurrence of that it is on the page (Reference 1 / 2 phone).
+  function siteKeyBase(f) {
+    const stable = (v) => (v && !/^(:r|_r_|mui-|react-select)|\d{3,}|[0-9a-f]{8}-/i.test(v) ? v : '');
+    return [f.kind, norm(f.desc.labelRaw).slice(0, 120), stable(f.el.getAttribute('name')) || stable(f.el.id)].join('|');
   }
 
   function valueFor(c, obj) {
@@ -541,6 +556,10 @@
 
   function matchField(f, profile) {
     const d = f.desc;
+    const site = f.kind !== 'file' && siteFields[f.siteKey];
+    if (site && savedValue(site)) {
+      return withConfidence({ source: 'saved for this site', type: 'text', raw: savedValue(site) }, 0.97);
+    }
     const custom = f.kind === 'file' ? null : bestCustomAnswer(d.labelRaw, profile.customAnswers);
     if (custom && custom.score >= 0.9) {
       return withConfidence({ source: 'saved answer', type: 'text', raw: custom.answer }, 0.95);
@@ -660,8 +679,13 @@
     });
     const fields = collectFields(root);
     const counters = new Map();
+    const keyCounts = new Map();
     for (const f of fields) {
       f.desc = describe(f);
+      const base = siteKeyBase(f);
+      const n = keyCounts.get(base) || 0;
+      keyCounts.set(base, n + 1);
+      f.siteKey = base + '|' + n;
       f.section = sectionOf(f.el, root, headings);
       // "Reference 2 Phone": once the section is known, the prefix is noise for matching.
       const sec = f.section && FM.sections[f.section];
@@ -1862,7 +1886,12 @@
     try {
       const tailoredId = opts && typeof opts.tailoredId === 'string' ? opts.tailoredId : '';
       const tailored = tailoredId ? await S.getTailored(tailoredId) : null;
-      const [profile, master] = await Promise.all([S.getProfile(), tailored ? null : S.getResume()]);
+      const [profile, master, saved] = await Promise.all([
+        S.getProfile(),
+        tailored ? null : S.getResume(),
+        S.getSiteAnswers(location.origin),
+      ]);
+      siteFields = saved.fields;
       const resume = tailored || master;
       // Pages that render their form after load (React apps) may not have fields yet.
       if (!collectFields(findRoot().root).length) await waitFor(() => collectFields(findRoot().root).length > 0, 3000);
