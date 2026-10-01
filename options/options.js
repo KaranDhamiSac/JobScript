@@ -634,6 +634,93 @@ S.getAnswerSettings().then((s) => {
 });
 autoSave.addEventListener('change', () => S.saveAnswerSettings({ autoSave: autoSave.checked }));
 
+// Sites with saved answers or learned steps. Labels and answers come from web pages, so
+// everything is shown with textContent.
+function make(tag, cls, text) {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
+}
+
+async function forgetSite(origin) {
+  await S.deleteSiteAnswers(origin);
+  try {
+    await chrome.scripting.unregisterContentScripts({ ids: ['site:' + origin] });
+  } catch (e) {
+    /* wasn't registered */
+  }
+  try {
+    await chrome.permissions.remove({ origins: [origin + '/*'] });
+  } catch (e) {
+    /* Greenhouse and Lever access is built in */
+  }
+}
+
+async function renderSites() {
+  const sites = Object.entries(await S.getAllSiteAnswers()).sort((a, b) => String(b[1].updatedAt).localeCompare(String(a[1].updatedAt)));
+  const box = document.getElementById('sites');
+  document.getElementById('sites-empty').hidden = sites.length > 0;
+  box.replaceChildren();
+  for (const [origin, site] of sites) {
+    const fields = Object.entries(site.fields || {});
+    const steps = site.steps || [];
+    const card = make('div', 'site');
+    const head = make('div', 'site-head');
+    head.append(make('strong', '', new URL(origin).host));
+    const bits = [`${fields.length} answer${fields.length === 1 ? '' : 's'}`];
+    if (steps.length) bits.push(`${steps.length} learned step${steps.length === 1 ? '' : 's'}`);
+    if (site.learning) bits.push('learning now');
+    head.append(make('span', 'muted small', ' · ' + bits.join(' · ')));
+    const spacer = make('span', 'spacer');
+    const toggle = make('button', 'secondary', 'Show');
+    toggle.type = 'button';
+    const forget = make('button', 'secondary danger', 'Forget site');
+    forget.type = 'button';
+    forget.addEventListener('click', async () => {
+      if (!confirm(`Forget everything JobScript saved for ${new URL(origin).host}?`)) return;
+      await forgetSite(origin);
+      renderSites();
+    });
+    head.append(spacer, toggle, forget);
+    const detail = make('div', 'site-detail');
+    detail.hidden = true;
+    toggle.addEventListener('click', () => {
+      detail.hidden = !detail.hidden;
+      toggle.textContent = detail.hidden ? 'Show' : 'Hide';
+    });
+    if (steps.length) {
+      const ol = make('ol', 'steps');
+      for (const st of steps) ol.append(make('li', '', `${st.title || 'Untitled step'} (${st.keys.length} field${st.keys.length === 1 ? '' : 's'})`));
+      detail.append(ol);
+    }
+    const table = make('table', 'site-fields');
+    for (const [key, f] of fields) {
+      const tr = make('tr');
+      tr.append(make('td', '', f.label || key.split('|')[1] || key));
+      tr.append(make('td', 'muted', f.profileKey ? `${f.answer} (from your profile)` : f.answer));
+      const td = make('td');
+      const del = make('button', 'link', 'Delete');
+      del.type = 'button';
+      del.addEventListener('click', async () => {
+        await S.deleteSiteAnswers(origin, key);
+        renderSites();
+      });
+      td.append(del);
+      tr.append(td);
+      table.append(tr);
+    }
+    detail.append(table);
+    card.append(head, detail);
+    box.append(card);
+  }
+}
+
+renderSites();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.siteAnswers) renderSites();
+});
+
 async function renderAi(message) {
   const [settings, key] = await Promise.all([S.getAiSettings(), S.getApiKey()]);
   aiEnabled.checked = settings.enabled;
