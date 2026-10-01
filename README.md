@@ -7,7 +7,10 @@ A Chrome/Firefox extension (Manifest V3) that autofills job applications on Gree
 - **Fill:** click **Fill this page** or press **Alt+Shift+F** on a Greenhouse or Lever application, or any other page. JobScript never submits.
 - **Side panel:** lists every field by category, marked filled (green), suggested (purple) or needs you (yellow). Click an item to jump to its field.
 - **Confidence:** each match gets a score. High-confidence matches fill automatically, medium ones are suggestions you accept, and low ones stay yellow. Thresholds live in `lib/fieldMap.js` (`confidence`).
-- **Info bank:** import your profile from your resume PDF (parsed locally, reviewed before saving). When you answer a question JobScript left empty, **Save to bank** keeps the answer for next time.
+- **Info bank:** import your profile from your resume PDF (parsed locally, reviewed before saving). When you answer a question JobScript left empty, **Save to bank** keeps the answer for next time, both by question wording (matched loosely on other sites) and for that site's exact field. Dates can be saved as a rule ("2 weeks from today", "Next Monday") instead of a fixed date. **Save answers** in the side panel saves a whole step from a review list. Auto-save is available on the options page, off by default.
+- **Custom widgets:** fills Material UI-style dropdowns (`role="combobox"` divs that open a separate option list) and date pickers, both the `mm/dd/yyyy` text box and the newer Month/Day/Year sections.
+- **Multi-step forms:** on portals that swap in the next step when you press Continue (Sac State's UEI, for one), the side panel notices the new step and offers **Fill this step**. JobScript never presses Continue, and skips an upload when the page already shows an attached file.
+- **Learn mode:** **Learn this site's steps** in the popup records a multi-step form while you fill it once: each step in order and your answers. Afterwards the panel opens on each step ("Step 2 of 9 (Documents)") and **Fill this step** fills it the way you did, using your current profile for fields that came from it. On sites other than Greenhouse and Lever it asks for access to that one site so it can follow steps that load a new page. Learned sites are listed, and can be forgotten, on the options page.
 - **Master resume:** your profile holds every job (as bullet lists), project and skill. Import it from your resume PDF with Claude or on your device, and review each parsed entry next to the resume line it came from.
 - **Job description & my resume:** on a job page, open the full job description (title, company and link on top) and copy it in one click to tailor your resume however you like. Upload the resume you made for that job, and JobScript attaches it, fills the rest of the form from your profile, and optionally saves the description and resume to `Downloads/JobScript/<Company>/<Job title>/`.
 - **Tailor & Fill (optional):** on a job page, Claude picks and rewords your most relevant bullets and projects and orders your skills for that posting. JobScript enforces the rules in code (no new skills, tools or metrics; numbers kept exactly) and shows original vs tailored side by side with the posting's missing keywords. On approval it builds a one-page ATS-friendly PDF locally (`FirstName_LastName_Company.pdf`), attaches it and fills the form.
@@ -41,9 +44,11 @@ The `dev/` folder holds test-only tools. The extension never loads anything from
 ```sh
 node dev/test-tracker-stats.mjs
 TZ=Asia/Kolkata node dev/test-tracker-stats.mjs
+node dev/test-date-rules.mjs
+node dev/test-site-answers.mjs
 ```
 
-Checks the tracker's date math: local-time days, streaks, week and month totals, heatmap levels and calendar grids.
+Checks the tracker's date math (local-time days, streaks, week and month totals, heatmap levels and calendar grids), relative date rules for saved answers, and per-site answer storage (learned steps, concurrent saves, imports).
 
 ### Mock form
 

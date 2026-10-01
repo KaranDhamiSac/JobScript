@@ -10,7 +10,8 @@ JobScript stores the details you enter on its options page:
 
 - contact details, links, skills and work-eligibility answers
 - optional demographic (EEO) answers, which default to "Decline to answer"
-- work history, education and your saved question-and-answer pairs (your "bank")
+- work history, education and your saved question-and-answer pairs (your "bank"), including date rules such as "2 weeks from today"
+- answers you save for a specific site's fields, and for sites you teach with Learn mode, the order of the form's steps and which fields each step has. These are stored per site address (for example `https://portal.example.edu`); you can see and delete them under "Saving answers" on the options page
 - up to three references: their name, company, relationship to you, email, phone, years known and whether employers may contact them. JobScript only puts these into application forms you fill; it never sends them to Claude
 - your resume PDF, and its plain text (extracted on your device when you upload it)
 - if you use the Claude features: your Anthropic API key and your chosen model
@@ -72,12 +73,14 @@ Claude's answers only appear as suggestions in JobScript's side panel. None are 
 
 - It does not sell, rent or share your data with anyone.
 - It does not use your data for advertising, profiling or any purpose other than filling forms you choose to fill.
-- It does not collect browsing history. It runs only on Greenhouse and Lever application pages, or on another page when you explicitly click Fill there.
+- It does not collect browsing history. It runs only on Greenhouse and Lever application pages, on another page when you explicitly click Fill there, and on sites you chose to teach with Learn mode and gave access to (one site at a time, asked for when you click "Learn this site's steps"). On those sites it only reads the form and shows its panel; it fills nothing until you click.
+- Learn mode and saving answers never record uploads, checkboxes, demographic or reference questions, or sensitive questions (such as Social Security number or date of birth).
 
 ## Your control
 
 - Edit or delete any field on the options page at any time.
-- **Export** saves your profile, resume and resume text to a JSON file you choose. It never includes your API key. **Import** loads one back.
+- **Export** saves your profile, resume, resume text and site answers to a JSON file you choose. It never includes your API key. **Import** loads one back.
+- **Forget site**, under "Saving answers" on the options page, deletes what JobScript saved for a site and removes the access you gave it.
 - **Remove key** deletes your saved API key.
 - Uninstalling JobScript deletes all of its stored data from your browser.
 
