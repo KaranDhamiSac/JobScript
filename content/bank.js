@@ -75,15 +75,6 @@
     return b;
   }
 
-  async function saveAnswer(question, answer) {
-    const profile = await S.getProfile();
-    const q = question.trim();
-    const existing = profile.customAnswers.find((a) => a.question.trim().toLowerCase() === q.toLowerCase());
-    if (existing) existing.answer = answer;
-    else profile.customAnswers.push({ question: q, answer });
-    await S.saveProfile(profile);
-  }
-
   function show(entry, anchor) {
     ensureHost();
     active = Object.assign(entry, { anchorEl: anchor });
@@ -93,7 +84,7 @@
       const value = entry.getValue();
       if (!value) return hide();
       save.disabled = true;
-      await saveAnswer(entry.f.label, value);
+      await S.saveCustomAnswer({ question: entry.f.label, answer: value });
       save.textContent = 'Saved ✓';
       if (entry.onSaved) entry.onSaved(value);
       clearTimeout(hideTimer);
