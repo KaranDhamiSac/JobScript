@@ -1323,6 +1323,7 @@
       .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
     const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft);
     const actions = [{ label: 'Job description', onClick: () => chrome.runtime.sendMessage({ type: 'job-start' }) }];
+    if (session.stepPending) actions.push({ label: 'Fill this step', primary: true, onClick: fillStep });
     if (hasSuggestions) actions.push({ label: 'Accept all', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
       note: session.note,
@@ -1549,6 +1550,8 @@
         debounce = setTimeout(lateFill, 400);
         return;
       }
+      // A new step of a multi-step form waits for you to press "Fill this step".
+      if (checkStepChange()) return stop();
       running = true;
       try {
         const before = counts().filled;
@@ -1584,6 +1587,77 @@
     observer.observe(document.body, { childList: true, subtree: true });
     endTimer = setTimeout(tick, LATE_FIELD_WINDOW_MS);
     stopWatching = stop;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Multi-step forms. Portals like Sac State's UEI swap in the next step when you press
+  // Continue, often without loading a new page. JobScript never presses Continue; it notices
+  // the new step and offers "Fill this step" in the panel.
+
+  let stepEls = []; // the fields of the step last filled or detected
+  let stepUrl = '';
+  let stepWatcher = null;
+
+  function rememberStep() {
+    stepEls = collectFields(findRoot().root).map((f) => f.el);
+    stepUrl = location.href;
+  }
+
+  // True (once per step) when the form now shows a different step: the address changed or most
+  // of the step's fields are gone, and new fields have appeared.
+  function checkStepChange() {
+    if (!session || session.stepPending === undefined) return false;
+    const gone = stepEls.filter((el) => !el.isConnected).length;
+    const urlChanged = location.href !== stepUrl;
+    if (!urlChanged && !(stepEls.length && gone / stepEls.length >= 0.5)) return false;
+    const fields = collectFields(findRoot().root);
+    const fresh = fields.filter((f) => !stepEls.includes(f.el));
+    if (!fresh.length) return false;
+    stepEls = fields.map((f) => f.el);
+    stepUrl = location.href;
+    onStepChange(fields.length);
+    return true;
+  }
+
+  function onStepChange(count) {
+    if (stopWatching) stopWatching();
+    for (const [id, f] of registry) {
+      if (!f.el.isConnected) {
+        globalThis.JobScriptBank.unwatch(f);
+        registry.delete(id);
+      }
+    }
+    session.stepPending = true;
+    session.note = `New step: ${count} field${count === 1 ? '' : 's'}. Press “Fill this step” when you’re ready. ` + DEFAULT_NOTE;
+    renderPanel();
+  }
+
+  function watchSteps() {
+    if (stepWatcher) return;
+    let timer = null;
+    const schedule = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (!running) checkStepChange();
+      }, 500);
+    };
+    const observer = new MutationObserver(schedule);
+    observer.observe(document.body, { childList: true, subtree: true });
+    // pushState doesn't fire an event, so also look at the address now and then.
+    const poll = setInterval(() => {
+      if (location.href !== stepUrl) schedule();
+    }, 700);
+    stepWatcher = () => {
+      observer.disconnect();
+      clearInterval(poll);
+      clearTimeout(timer);
+      stepWatcher = null;
+    };
+  }
+
+  function fillStep() {
+    if (!session || running) return;
+    fillPage({ tailoredId: session.tailoredId || '', step: true });
   }
 
   // ---------------------------------------------------------------------------
@@ -1796,7 +1870,15 @@
       clearHighlights();
       registry.clear();
       globalThis.JobScriptBank.reset();
-      session = { site, note: tailored ? `Attached your tailored resume (${tailored.name}). ` + DEFAULT_NOTE : DEFAULT_NOTE, forceResume: !!tailored };
+      // On a later step of a multi-step form, a resume attached earlier is left alone.
+      const step = !!(opts && opts.step);
+      session = {
+        site,
+        note: tailored && !step ? `Attached your tailored resume (${tailored.name}). ` + DEFAULT_NOTE : DEFAULT_NOTE,
+        forceResume: !!tailored && !step,
+        tailoredId,
+        stepPending: false,
+      };
       Object.assign(session, (({ title, company }) => ({ jobTitle: title, company }))(titleAndCompany()));
       await ensureEntries(root, profile);
 
@@ -1807,9 +1889,12 @@
       const s = await runPass(root, profile, resume, false);
       if (!s.found) {
         if (stopWatching) stopWatching();
+        if (stepWatcher) stepWatcher();
         session = null;
         return null;
       }
+      rememberStep();
+      watchSteps();
       renderPanel();
       aiQuestions = await prepareAiQuestions();
       if (aiQuestions) {
