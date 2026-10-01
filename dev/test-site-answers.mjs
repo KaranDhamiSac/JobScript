@@ -56,6 +56,18 @@ await test('learning records steps in order and restarts clean', async () => {
   assert.equal((await S.getSiteAnswers(A)).steps.length, 0);
 });
 
+await test('saves started together all land', async () => {
+  await Promise.all([
+    S.saveSiteAnswers(B, [{ key: 'x', answer: '1' }]),
+    S.addSiteStep(B, { title: 'One', keys: ['x'] }),
+    S.saveSiteAnswers(B, [{ key: 'y', answer: '2' }]),
+  ]);
+  const site = await S.getSiteAnswers(B);
+  assert.deepEqual(Object.keys(site.fields).sort(), ['x', 'y']);
+  assert.equal(site.steps.length, 1);
+  await S.deleteSiteAnswers(B);
+});
+
 await test('delete one field, then the whole site', async () => {
   await S.saveSiteAnswers(B, [{ key: 'a', answer: '1' }, { key: 'b', answer: '2' }]);
   await S.deleteSiteAnswers(B, 'a');
