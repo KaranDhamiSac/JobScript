@@ -19,7 +19,8 @@
     "https://jobs.eu.lever.co/*"
   ],
   "optional_host_permissions": [
-    "https://api.anthropic.com/*"
+    "https://api.anthropic.com/*",
+    "https://*/*"
   ],
   "background": {
     "service_worker": "background.js",

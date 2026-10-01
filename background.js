@@ -204,6 +204,77 @@ async function fillWithTailored(msg) {
   return fillTab(tab.id, { tailoredId: msg.tailoredId, folder: typeof msg.folder === 'string' ? msg.folder : '' });
 }
 
+// ---------------------------------------------------------------------------
+// Learn mode. On a site you let JobScript run on (an optional permission for just that site,
+// asked for from the popup), the content script is registered to load with every page, so the
+// panel can follow a multi-step form even when each step loads a new page.
+
+function siteScriptId(origin) {
+  return 'site:' + origin;
+}
+
+// Greenhouse and Lever already get the content script from the manifest.
+function hasBuiltInScript(origin) {
+  return chrome.runtime.getManifest().content_scripts.some((cs) => cs.matches.includes(origin + '/*'));
+}
+
+async function registerSiteScript(origin) {
+  if (hasBuiltInScript(origin)) return;
+  const id = siteScriptId(origin);
+  const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [id] });
+  if (existing.length) return;
+  await chrome.scripting.registerContentScripts([
+    { id, matches: [origin + '/*'], js: CONTENT_FILES, css: CONTENT_CSS, runAt: 'document_idle' },
+  ]);
+}
+
+async function unregisterSiteScript(origin) {
+  try {
+    await chrome.scripting.unregisterContentScripts({ ids: [siteScriptId(origin)] });
+  } catch (e) {
+    /* wasn't registered */
+  }
+}
+
+// Re-register after an update or restart: learned sites whose permission you still grant.
+async function syncSiteScripts() {
+  const sites = await JobScriptStorage.getAllSiteAnswers();
+  for (const [origin, site] of Object.entries(sites)) {
+    if (!site.learning && !(site.steps && site.steps.length)) continue;
+    if (await chrome.permissions.contains({ origins: [origin + '/*'] })) await registerSiteScript(origin).catch(() => {});
+  }
+}
+
+async function learnTab(tabId) {
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (e) {
+    return { ok: false, error: 'No active tab.' };
+  }
+  let origin;
+  try {
+    origin = new URL(tab.url).origin;
+  } catch (e) {
+    return { ok: false, error: 'JobScript cannot run on this page.' };
+  }
+  if (!/^https?:/.test(origin)) return { ok: false, error: 'JobScript cannot run on this page.' };
+  const persistent = await chrome.permissions.contains({ origins: [origin + '/*'] });
+  if (persistent) await registerSiteScript(origin).catch(() => {});
+  const res = await fillTab(tabId, { learn: true });
+  return Object.assign({}, res, { persistent });
+}
+
+chrome.permissions.onRemoved.addListener(({ origins }) => {
+  for (const pattern of origins || []) {
+    const m = /^(https?:\/\/[^/]+)\/\*$/.exec(pattern);
+    if (m) unregisterSiteScript(m[1]);
+  }
+});
+
+chrome.runtime.onInstalled.addListener(() => syncSiteScripts());
+chrome.runtime.onStartup.addListener(() => syncSiteScripts());
+
 // Messages from our own content scripts carry sender.tab; page scripts can't send these at all.
 function isOwnContentScript(sender) {
   return sender.id === chrome.runtime.id && !!sender.tab && Number.isInteger(sender.tab.id) && typeof sender.url === 'string';
@@ -221,6 +292,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!isTrustedSender(sender, 'popup/') || !Number.isInteger(msg.tabId)) return false;
     fillTab(msg.tabId).then(sendResponse);
     return true; // keep the channel open for the async response
+  }
+  if (msg.type === 'learn-tab') {
+    if (!isTrustedSender(sender, 'popup/') || !Number.isInteger(msg.tabId)) return false;
+    learnTab(msg.tabId).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not start learning.' }));
+    return true;
   }
   if (msg.type === 'tailor-tab' || msg.type === 'job-tab') {
     if (!isTrustedSender(sender, 'popup/') || !Number.isInteger(msg.tabId)) return false;

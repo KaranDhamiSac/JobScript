@@ -101,6 +101,55 @@ document.getElementById('tailor').addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------------------
+// Learn mode: you fill a multi-step form once and JobScript records each step (see
+// content/autofill.js). On sites other than Greenhouse and Lever it asks to run on that one site,
+// so the side panel can follow steps that load a new page.
+
+const learnBtn = document.getElementById('learn');
+let learnTabInfo = null; // { id, origin }, read when the popup opens
+
+async function setUpLearn() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !Number.isInteger(tab.id) || !/^https?:/.test(tab.url || '')) return;
+  const origin = new URL(tab.url).origin;
+  learnTabInfo = { id: tab.id, origin };
+  const site = await JobScriptStorage.getSiteAnswers(origin);
+  learnBtn.textContent = site.steps.length ? `Relearn this site’s steps (${site.steps.length} learned)` : 'Learn this site’s steps';
+  learnBtn.hidden = false;
+}
+
+learnBtn.addEventListener('click', async () => {
+  if (!learnTabInfo) return;
+  learnBtn.disabled = true;
+  // Asked straight from the click: browsers only show permission prompts then. Declining still
+  // lets you learn, as long as the form doesn't load a new page for each step.
+  const pattern = learnTabInfo.origin + '/*';
+  let granted = false;
+  try {
+    granted = await chrome.permissions.request({ origins: [pattern] });
+  } catch (e) {
+    granted = false;
+  }
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'learn-tab', tabId: learnTabInfo.id });
+    if (!res || !res.ok) {
+      showResult('err', 'Couldn’t start learning', (res && res.error) || 'Something went wrong.');
+    } else {
+      showResult(
+        'ok',
+        'Learning this site',
+        ' Answer each step, press Continue yourself, and press “Finish learning” in the side panel after the last one.' +
+          (granted || res.persistent ? '' : ' Without permission to run on this site, keep this tab open between steps.')
+      );
+    }
+  } catch (err) {
+    showResult('err', 'Couldn’t start learning', String(err.message || err));
+  } finally {
+    learnBtn.disabled = false;
+  }
+});
+
+// ---------------------------------------------------------------------------
 // Tracker: today's progress here, everything else on the full tracker page.
 
 document.getElementById('open-tracker').addEventListener('click', () => {
@@ -121,4 +170,5 @@ async function showTodayProgress() {
 
 showProfileStatus();
 showShortcut();
+setUpLearn();
 showTodayProgress();
