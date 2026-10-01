@@ -8,7 +8,6 @@
 (function () {
   if (globalThis.JobScriptBank) return;
 
-  const S = globalThis.JobScriptStorage;
   const HIDE_AFTER_MS = 15000;
 
   const CSS = `
@@ -19,6 +18,7 @@
       font: 12px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     button { font: inherit; cursor: pointer; border-radius: 6px; border: none; padding: 4px 8px; }
+    select { font: inherit; max-width: 220px; border-radius: 6px; border: 1px solid #374151; background: #1f2937; color: #f9fafb; padding: 3px 4px; }
     .save { background: #2563eb; color: #fff; font-weight: 600; }
     .close { background: none; color: #9ca3af; font-size: 14px; padding: 2px 6px; }
   `;
@@ -80,11 +80,21 @@
     active = Object.assign(entry, { anchorEl: anchor });
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
+    // Dates: choose whether to keep this exact date or a rule like "2 weeks from today".
+    let rule = null;
+    const choices = entry.dateChoices && entry.dateChoices(entry.getValue());
+    if (choices) {
+      rule = document.createElement('select');
+      rule.title = 'How to answer this next time';
+      for (const c of choices.choices) rule.append(new Option(c.label, c.rule, false, c.rule === choices.selected));
+      rule.addEventListener('focus', () => clearTimeout(hideTimer));
+      bubble.append(rule);
+    }
     const save = button('save', 'Save to bank', async () => {
       const value = entry.getValue();
       if (!value) return hide();
       save.disabled = true;
-      await S.saveCustomAnswer({ question: entry.f.label, answer: value });
+      await entry.save(value, rule ? rule.value : '');
       save.textContent = 'Saved ✓';
       if (entry.onSaved) entry.onSaved(value);
       clearTimeout(hideTimer);
@@ -107,8 +117,9 @@
   }
 
   // Watch a field JobScript couldn't fill. getValue() returns its current value as text;
-  // anchor() returns the element to place the prompt under.
-  function watch(f, { getValue, anchor, onUserValue, onSaved }) {
+  // anchor() returns the element to place the prompt under; save(value, dateRule) stores it.
+  // dateChoices(value), for date fields, returns { choices: [{ rule, label }], selected }.
+  function watch(f, { getValue, anchor, save, dateChoices, onUserValue, onSaved }) {
     if (!eligible(f)) return;
     unwatch(f);
     const cleanups = [];
@@ -122,7 +133,7 @@
         const value = getValue();
         if (!value) return;
         if (onUserValue) onUserValue(value);
-        show({ f, getValue, onSaved }, anchor());
+        show({ f, getValue, save, dateChoices, onSaved }, anchor());
       }, 0);
     };
     const targets = container ? [container] : els;

@@ -1425,11 +1425,60 @@
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // Saving your answers: globally by question wording (matched loosely on other sites) and for
+  // this site by field (matched exactly here).
+
+  // The value to store for what a field shows: dates as YYYY-MM-DD, checkboxes as yes/no.
+  function answerToSave(f, text) {
+    if (isDateKind(f.kind)) {
+      const p = parseDate(text);
+      if (!p) return text;
+      return `${p.y}-${String(p.m).padStart(2, '0')}-${String(p.d || 1).padStart(2, '0')}`;
+    }
+    if (f.kind === 'checkbox') return text ? 'yes' : 'no';
+    return text;
+  }
+
+  // Ways to save a date answer: the date itself, or a rule that moves with the calendar.
+  // The rule that gives this same date today is preselected.
+  function dateChoices(f, text) {
+    if (!isDateKind(f.kind)) return null;
+    const date = answerToSave(f, text);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    const D = globalThis.JobScriptDates;
+    const rules = [...D.PRESETS];
+    const today = D.resolve('today');
+    const days = Math.round((new Date(date + 'T12:00') - new Date(today + 'T12:00')) / 86400000);
+    if (days > 0 && days <= 365 && !rules.some((r) => D.resolve(r) === date)) rules.push(D.daysFromToday(days));
+    const choices = [{ rule: '', label: `Always ${date}` }];
+    for (const r of rules) choices.push({ rule: r, label: `${D.describe(r)} (${D.resolve(r)})` });
+    const match = rules.find((r) => D.resolve(r) === date);
+    return { choices, selected: match || '' };
+  }
+
+  // items: [{ f, value, dateRule }], value being what the field showed.
+  async function saveAnswers(items) {
+    const D = globalThis.JobScriptDates;
+    const rows = items.map(({ f, value, dateRule }) => {
+      const answer = answerToSave(f, value);
+      return { f, answer: dateRule ? D.describe(dateRule) : answer, dateRule: dateRule || '' };
+    });
+    await S.saveCustomAnswers(rows.map((r) => ({ question: r.f.label, answer: r.answer, dateRule: r.dateRule })));
+    await S.saveSiteAnswers(
+      location.origin,
+      rows.map((r) => ({ key: r.f.siteKey, label: r.f.label, kind: r.f.kind, answer: r.answer, dateRule: r.dateRule }))
+    );
+    for (const r of rows) siteFields[r.f.siteKey] = { answer: r.answer, dateRule: r.dateRule };
+  }
+
   // Offer "Save to bank" when you answer a field JobScript left for you.
   function watchBank(f) {
     globalThis.JobScriptBank.watch(f, {
       getValue: () => currentValueText(f),
       anchor: () => highlightTarget(f),
+      save: (value, dateRule) => saveAnswers([{ f, value, dateRule }]),
+      dateChoices: (value) => dateChoices(f, value),
       onUserValue: () => {
         setStatus(f, 'filled', 'Filled by you', { noHighlight: true });
         renderPanel();
