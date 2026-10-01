@@ -66,9 +66,18 @@ const LISTS = {
     fields: [
       { key: 'question', label: 'Question', wide: true },
       { key: 'answer', label: 'Answer', type: 'textarea', wide: true },
+      { key: 'dateRule', label: 'For date questions', type: 'select', options: dateRuleOptions },
     ],
   },
 };
+
+// Saved date answers can follow a rule (lib/dateRules.js) instead of a fixed date.
+function dateRuleOptions(entry) {
+  const D = globalThis.JobScriptDates;
+  const rules = [...D.PRESETS];
+  if (entry.dateRule && D.isRule(entry.dateRule) && !rules.includes(entry.dateRule)) rules.push(entry.dateRule);
+  return [['', 'Use the answer above'], ...rules.map((r) => [r, D.describe(r)])];
+}
 
 let profile = null;
 let dirty = false;
@@ -166,7 +175,8 @@ function renderList(listKey) {
       let input;
       if (field.type === 'select') {
         input = document.createElement('select');
-        for (const [value, text] of field.options) input.append(new Option(text, value));
+        const options = typeof field.options === 'function' ? field.options(entry) : field.options;
+        for (const [value, text] of options) input.append(new Option(text, value));
         input.value = entry[field.key] ?? '';
       } else if (field.type === 'textarea' || field.type === 'lines') {
         input = document.createElement('textarea');
