@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DIST = ROOT / 'dist'
 
 # Runtime files only. Add new extension folders here (e.g. "icons") when they exist.
-INCLUDE = ['background.js', 'lib', 'content', 'popup', 'options', 'tailor', 'job']
+INCLUDE = ['background.js', 'lib', 'content', 'popup', 'options', 'tailor', 'job', 'tracker']
 
 
 def browser_manifest(manifest, browser):
