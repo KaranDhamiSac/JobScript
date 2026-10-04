@@ -1,0 +1,171 @@
+<!doctype html>
+<!--
+  Test-only copy of the widgets on Workday's logged-in "My Experience" step, built from the
+  markup in docs/platforms/workday.md (Workday itself needs a candidate account):
+  - fields wrapped in data-automation-id="formField-*" with a <label for>;
+  - a "Select One" listbox button whose options open in a portal at the end of the page;
+  - a search prompt (multiSelectContainer): type, press Enter, pick a result, which becomes a
+    selectedItem pill;
+  - dates as Month/Year spinbutton inputs in a dateInputWrapper;
+  - Work Experience and Education "Add" buttons whose entries use non-sequential ids
+    (workExperience-9--jobTitle);
+  - the sign-in honeypot input, which must stay empty.
+  Serve the repo root (python3 -m http.server 8765 --bind 127.0.0.1), open
+  /dev/mock-workday-form.html, then run await __jobscriptFill() and check window.__committed.
+  Uses the fake profile in dev/stub.js.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Workday mock form</title>
+<link rel="stylesheet" href="../content/autofill.css">
+<script src="stub.js"></script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/fieldMap.js"></script>
+<script src="../lib/dateRules.js"></script>
+<script src="../content/panel.js"></script>
+<script src="../content/bank.js"></script>
+<script src="../content/autofill.js"></script>
+<style>
+  body { font: 15px system-ui, sans-serif; max-width: 680px; margin: 24px auto; padding: 0 16px; }
+  [data-automation-id^="formField-"] { margin: 10px 0; }
+  [data-automation-id="dateInputWrapper"] input { width: 4em; }
+  [data-automation-id="activeListContainer"] { position: fixed; top: 40px; right: 16px; background: #fff; border: 1px solid #888; list-style: none; padding: 4px; margin: 0; }
+  [data-automation-id="promptOption"] { padding: 2px 6px; cursor: pointer; }
+  [data-automation-id="selectedItem"] { display: inline-block; background: #def; padding: 0 6px; margin-right: 4px; }
+</style>
+</head>
+<body>
+<div data-automation-id="applyFlowPage">
+  <h2 data-automation-id="applyFlowMyExpPage">My Experience</h2>
+  <ol data-automation-id="progressBar"><li data-automation-id="progressBarActiveStep"><label>current step 2 of 6</label> My Experience</li></ol>
+
+  <div role="group" aria-labelledby="Work-Experience-section">
+    <h3 id="Work-Experience-section">Work Experience</h3>
+    <div data-list="workExperience"></div>
+    <button type="button" data-automation-id="add-button" data-add="workExperience">Add</button>
+  </div>
+
+  <div role="group" aria-labelledby="Education-section">
+    <h3 id="Education-section">Education</h3>
+    <div data-list="education"></div>
+    <button type="button" data-automation-id="add-button" data-add="education">Add</button>
+  </div>
+
+  <h3>Application Questions</h3>
+  <div data-automation-id="formField-source">
+    <label for="source--source">How Did You Hear About Us?<abbr aria-hidden="true">*</abbr></label>
+    <div data-automation-id="multiSelectContainer" data-uxi-widget-type="multiselect">
+      <ul data-automation-id="selectedItemList"></ul>
+      <div data-automation-id="multiselectInputContainer"><input id="source--source" data-automation-id="searchBox" placeholder="Search" aria-required="true"></div>
+    </div>
+  </div>
+  <div data-automation-id="formField-country">
+    <label for="country--country">Country<abbr aria-hidden="true">*</abbr></label>
+    <button type="button" id="country--country" aria-haspopup="listbox" aria-required="true">Select One</button>
+  </div>
+  <div data-automation-id="formField-candidateIsPreviousWorker">
+    <label>Have you previously worked for Northwind Logistics?</label>
+    <div role="radiogroup">
+      <input type="radio" id="pw-yes" name="candidateIsPreviousWorker" value="true"><label for="pw-yes">Yes</label>
+      <input type="radio" id="pw-no" name="candidateIsPreviousWorker" value="false"><label for="pw-no">No</label>
+    </div>
+  </div>
+
+  <div data-automation-id="signInFormo">
+    <input type="text" data-automation-id="beecatcher" name="website" aria-label="Enter website. This input is for robots only, do not enter if you're human.">
+  </div>
+</div>
+<script>
+  // What the "app" registered, by field id; tests read this.
+  window.__committed = {};
+  const keep = (el) => {
+    el.addEventListener('change', () => { window.__committed[el.id || el.name] = el.value; });
+  };
+  document.querySelectorAll('input').forEach(keep);
+
+  // Options open in a portal at the end of the page, like Workday's popups.
+  function openList(items, onPick) {
+    document.querySelectorAll('[data-automation-id="activeListContainer"]').forEach((n) => n.remove());
+    const list = document.createElement('ul');
+    list.setAttribute('data-automation-id', 'activeListContainer');
+    list.setAttribute('role', 'listbox');
+    for (const text of items) {
+      const li = document.createElement('li');
+      li.setAttribute('data-automation-id', 'promptOption');
+      li.setAttribute('role', 'option');
+      li.textContent = text;
+      li.addEventListener('click', () => { onPick(text); list.remove(); });
+      list.appendChild(li);
+    }
+    document.body.appendChild(list);
+  }
+
+  // Listbox buttons.
+  const COUNTRIES = ['Canada', 'Mexico', 'United States of America'];
+  function listbox(btn, items) {
+    btn.addEventListener('click', () => openList(items, (text) => { btn.textContent = text; window.__committed[btn.id] = text; }));
+  }
+  listbox(document.getElementById('country--country'), COUNTRIES);
+
+  // Search prompts: typing alone does nothing; Enter searches.
+  const SOURCES = ['LinkedIn', 'Company Website', 'Employee Referral', 'Indeed'];
+  const SCHOOLS = ['California State University, Sacramento', 'California State University, Fresno', 'Sacramento City College'];
+  function prompt(input, items) {
+    const box = input.closest('[data-automation-id="multiSelectContainer"]');
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const q = input.value.toLowerCase();
+      openList(items.filter((t) => t.toLowerCase().includes(q.split(' ')[0])), (text) => {
+        const pill = document.createElement('li');
+        pill.setAttribute('data-automation-id', 'selectedItem');
+        pill.textContent = text;
+        box.querySelector('[data-automation-id="selectedItemList"]').appendChild(pill);
+        input.value = '';
+        window.__committed[input.id] = text;
+      });
+    });
+  }
+  prompt(document.getElementById('source--source'), SOURCES);
+
+  function dateField(prefix, name, label, parts) {
+    const inputs = parts.map((p) =>
+      `<input role="spinbutton" id="${prefix}--${name}-dateSection${p}-input" data-automation-id="dateSection${p}-input" aria-label="${p}">`
+    ).join(' ');
+    return `<div data-automation-id="formField-${name}"><label for="${prefix}--${name}-dateSection${parts[0]}-input">${label}</label>` +
+      `<div data-automation-id="dateInputWrapper">${inputs}</div></div>`;
+  }
+
+  // Entry ids come from a shared counter, so they aren't 1, 2, 3 per section.
+  let k = 8;
+  const ENTRY = {
+    workExperience: (id) =>
+      `<div role="group" aria-labelledby="Work-Experience-${id}-panel"><h4 id="Work-Experience-${id}-panel">Work Experience</h4>` +
+      `<div data-automation-id="formField-jobTitle"><label for="workExperience-${id}--jobTitle">Job Title</label><input id="workExperience-${id}--jobTitle"></div>` +
+      `<div data-automation-id="formField-companyName"><label for="workExperience-${id}--companyName">Company</label><input id="workExperience-${id}--companyName"></div>` +
+      `<div data-automation-id="formField-currentlyWorkHere"><input type="checkbox" id="workExperience-${id}--currentlyWorkHere"><label for="workExperience-${id}--currentlyWorkHere">I currently work here</label></div>` +
+      dateField('workExperience-' + id, 'startDate', 'From', ['Month', 'Year']) + '</div>',
+    education: (id) =>
+      `<div role="group" aria-labelledby="Education-${id}-panel"><h4 id="Education-${id}-panel">Education</h4>` +
+      `<div data-automation-id="formField-schoolName"><label for="education-${id}--schoolName">School or University</label>` +
+      `<div data-automation-id="multiSelectContainer"><ul data-automation-id="selectedItemList"></ul><input id="education-${id}--schoolName" data-automation-id="searchBox" placeholder="Search"></div></div>` +
+      `<div data-automation-id="formField-degree"><label for="education-${id}--degree">Degree</label><button type="button" id="education-${id}--degree" aria-haspopup="listbox">Select One</button></div>` +
+      dateField('education-' + id, 'lastYearAttended', 'To (Actual or Expected)', ['Year']) + '</div>',
+  };
+  document.querySelectorAll('[data-add]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = ++k;
+      const holder = document.createElement('div');
+      holder.innerHTML = ENTRY[btn.dataset.add](id);
+      document.querySelector(`[data-list="${btn.dataset.add}"]`).appendChild(holder);
+      holder.querySelectorAll('input').forEach(keep);
+      const school = holder.querySelector('[data-automation-id="searchBox"]');
+      if (school) prompt(school, SCHOOLS);
+      const degree = holder.querySelector('[aria-haspopup="listbox"]');
+      if (degree) listbox(degree, ["Associate's Degree", "Bachelor's Degree", "Master's Degree"]);
+      btn.textContent = 'Add Another';
+    });
+  });
+</script>
+</body>
+</html>
