@@ -502,11 +502,15 @@
       if (sec.labelPatterns && sec.labelPatterns.some((re) => re.test(label))) return key;
     }
     for (let n = parentOf(el), d = 0; n && n !== root && d < 8; n = parentOf(n), d++) {
-      // Hooks like data-test="add-experience" (SmartRecruiters) or Workday's section ids.
+      // Strongest first: a component's tag (SmartRecruiters' oc-education-entry, whose
+      // data-test says "experience-entry"), then id and class, then hooks like
+      // data-test="add-experience" or Workday's section ids.
       const hooks = ['data-test', 'data-automation-id', 'aria-labelledby'].map((a) => n.getAttribute(a) || '').join(' ');
-      const s = (n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : '') + ' ' + hooks;
-      for (const [key, sec] of entries) {
-        if (sec.attrPatterns.some((re) => re.test(s))) return key;
+      const tag = n.localName.includes('-') ? n.localName : '';
+      for (const s of [tag, (n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : ''), hooks]) {
+        for (const [key, sec] of entries) {
+          if (s.trim() && sec.attrPatterns.some((re) => re.test(s))) return key;
+        }
       }
     }
     const heading = headingAbove(el, headings);
