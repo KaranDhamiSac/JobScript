@@ -184,16 +184,22 @@
     return copy.textContent;
   }
 
-  // Closest short bit of text sitting just before the element (or one of its ancestors).
+  // Closest short bit of text sitting just before the element (or one of its ancestors). A
+  // <label> a little further up wins over help text in between ("Country" / "City and country,
+  // please" / input on Ashby).
   function nearbyText(el) {
     let node = el;
     for (let depth = 0; depth < 4 && node && node !== document.body; depth++) {
       let sib = node.previousElementSibling;
+      let text = '';
       for (let i = 0; sib && i < 3; i++, sib = sib.previousElementSibling) {
         if (sib.matches('input, select, textarea') || sib.querySelector('input, select, textarea')) break;
         const t = clean(sib.textContent);
-        if (t && t.length <= 500) return t;
+        if (!t || t.length > 500) continue;
+        if (sib.tagName === 'LABEL') return t;
+        text = text || t;
       }
+      if (text) return text;
       node = node.parentElement;
     }
     return '';
