@@ -275,11 +275,29 @@
     };
   }
 
+  // Inputs only robots fill (Workday's "beecatcher", Oracle's "honey-pot"). Filling one can get
+  // an application silently dropped, so they're never touched, visible or not.
+  const HONEYPOT = /honey.?pot|beecatcher|bot.?trap/i;
+
+  function isHoneypot(el) {
+    const own = [el.id, el.getAttribute('name'), el.getAttribute('aria-label'), el.getAttribute('data-automation-id')].join(' ');
+    if (HONEYPOT.test(own)) return true;
+    const box = el.parentElement;
+    return !!box && HONEYPOT.test(box.id + ' ' + (typeof box.className === 'string' ? box.className : ''));
+  }
+
+  // Parts of a page JobScript must leave alone on this site (sign-in forms, a site's own
+  // resume parser, chat widgets): the current site's `never` selectors in lib/fieldMap.js.
+  function isOffLimits(el) {
+    const site = currentSite();
+    return isHoneypot(el) || !!(site && site.never && site.never.some((sel) => el.closest(sel)));
+  }
+
   function collectFields(root) {
     const out = [];
     const groups = new Map();
     for (const el of root.querySelectorAll('input, select, textarea, [role="group"], ' + LISTBOX_SELECTOR)) {
-      if (el.disabled) continue;
+      if (el.disabled || isOffLimits(el)) continue;
       if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
         if (el.getAttribute('role') === 'group') {
           if (dateSections(el)) out.push({ el, kind: 'datesections' });
