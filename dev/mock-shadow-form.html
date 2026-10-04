@@ -1,0 +1,147 @@
+<!doctype html>
+<!--
+  Test-only form built from web components with open shadow roots, the way SmartRecruiters'
+  spl-* elements are (docs/platforms/smartrecruiters.md):
+  - the label and the input live in the component's shadow root, and the host repeats the
+    input's id;
+  - the city autocomplete nests an input component inside its own shadow root, points the input
+    at a menu in the outer root, and only commits when an option's click() method runs;
+  - the phone number's label is an attribute on the outer host;
+  - "Add" opens an experience entry.
+  Serve the repo root (python3 -m http.server 8765 --bind 127.0.0.1), open
+  /dev/mock-shadow-form.html, then run await __jobscriptFill() and check window.__committed.
+  Uses the fake profile in dev/stub.js.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Shadow DOM mock form</title>
+<link rel="stylesheet" href="../content/autofill.css">
+<script src="stub.js"></script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/fieldMap.js"></script>
+<script src="../lib/dateRules.js"></script>
+<script src="../content/panel.js"></script>
+<script src="../content/bank.js"></script>
+<script src="../content/autofill.js"></script>
+<style>
+  body { font: 15px system-ui, sans-serif; max-width: 640px; margin: 24px auto; padding: 0 16px; }
+  section { margin: 18px 0; }
+  x-input, x-autocomplete, x-phone { display: block; margin: 8px 0; }
+</style>
+</head>
+<body>
+<h1>Data Analyst at Northwind Logistics</h1>
+<form id="app">
+  <section data-test="personal-info">
+    <h2>Personal information</h2>
+    <x-input id="first-name-input" label="First name" required></x-input>
+    <x-input id="last-name-input" label="Last name" required></x-input>
+    <x-input id="email-input" label="Email" type="email" required></x-input>
+    <x-autocomplete id="city" label="City"></x-autocomplete>
+    <x-phone label="Phone number"></x-phone>
+  </section>
+  <section data-test="experience-section">
+    <h2>Experience</h2>
+    <div data-test="experience-list"></div>
+    <x-button data-test="add-experience">Add</x-button>
+  </section>
+</form>
+<script>
+  // What the "framework" registered, by field label; tests read this.
+  window.__committed = {};
+  let seq = 0;
+
+  class XInput extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      const id = this.id || 'x-el-' + ++seq;
+      this.id = id;
+      const root = this.attachShadow({ mode: 'open' });
+      const label = this.getAttribute('label');
+      root.innerHTML = (label ? `<label for="${id}">${label}${this.hasAttribute('required') ? '*' : ''}</label><br>` : '') +
+        `<input id="${id}" type="${this.getAttribute('type') || 'text'}"${this.hasAttribute('required') ? ' aria-required="true"' : ''}>`;
+      this.input = root.querySelector('input');
+      // Like Lit's @input: only the inner input's own event updates the value.
+      this.input.addEventListener('input', () => {
+        this.value = this.input.value;
+        if (!this.hasAttribute('autocomplete-part')) window.__committed[label || this.closest('[label]')?.getAttribute('label') || id] = this.value;
+      });
+    }
+  }
+
+  class XOption extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      this.attachShadow({ mode: 'open' }).innerHTML = '<div role="option"><slot></slot></div>';
+    }
+    // Selecting happens here, as in spl-select-option; a dispatched click event does nothing.
+    click() {
+      this.dispatchEvent(new CustomEvent('x-select', { bubbles: true, detail: this.textContent.trim() }));
+    }
+  }
+
+  const CITIES = ['Sacramento, CA, US', 'Sacramento, Minas Gerais, Brazil', 'San Diego, CA, US'];
+  class XAutocomplete extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      const root = this.attachShadow({ mode: 'open' });
+      const menuId = 'menu-' + ++seq;
+      root.innerHTML = `<x-input label="${this.getAttribute('label')}" autocomplete-part></x-input><div id="${menuId}" role="listbox"></div>`;
+      const field = root.querySelector('x-input');
+      const menu = root.getElementById(menuId);
+      const input = field.input;
+      input.setAttribute('role', 'combobox');
+      input.setAttribute('aria-controls', menuId);
+      input.setAttribute('aria-expanded', 'false');
+      input.addEventListener('input', () => {
+        setTimeout(() => {
+          const q = input.value.toLowerCase();
+          menu.replaceChildren(...CITIES.filter((c) => q.length >= 3 && c.toLowerCase().startsWith(q)).map((c) => {
+            const o = document.createElement('x-option');
+            o.textContent = c;
+            return o;
+          }));
+          input.setAttribute('aria-expanded', String(menu.children.length > 0));
+        }, 150);
+      });
+      menu.addEventListener('x-select', (e) => {
+        input.value = e.detail;
+        this.value = e.detail;
+        window.__committed[this.getAttribute('label')] = e.detail;
+        menu.replaceChildren();
+        input.setAttribute('aria-expanded', 'false');
+      });
+    }
+  }
+
+  class XPhone extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      this.attachShadow({ mode: 'open' }).innerHTML = '<x-input type="tel"></x-input>';
+    }
+  }
+
+  class XButton extends HTMLElement {
+    connectedCallback() {
+      if (this.shadowRoot) return;
+      this.attachShadow({ mode: 'open' }).innerHTML = '<button type="button"><slot></slot></button>';
+    }
+  }
+
+  customElements.define('x-input', XInput);
+  customElements.define('x-option', XOption);
+  customElements.define('x-autocomplete', XAutocomplete);
+  customElements.define('x-phone', XPhone);
+  customElements.define('x-button', XButton);
+
+  document.querySelector('[data-test="add-experience"]').addEventListener('click', () => {
+    const n = document.querySelectorAll('[data-test="experience-entry"]').length + 1;
+    const entry = document.createElement('div');
+    entry.setAttribute('data-test', 'experience-entry');
+    entry.innerHTML = `<x-input id="title-${n}" label="Title"></x-input><x-input id="company-${n}" label="Company"></x-input>`;
+    document.querySelector('[data-test="experience-list"]').appendChild(entry);
+  });
+</script>
+</body>
+</html>
