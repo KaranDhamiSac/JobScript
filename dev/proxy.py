@@ -1,7 +1,10 @@
 # Test-only reverse proxy: serves a real job site from 127.0.0.1 without its CSP, GET only.
+# An optional 4th argument is a regex of read-only POST paths to forward too, for sites that
+# load the form itself with a POST (Ashby's GraphQL), e.g. 'op=Api(JobPosting|Organization)'.
 import http.server, os, re, sys, urllib.request, urllib.error
 HERE = os.path.dirname(os.path.abspath(__file__))
 PORT, TARGET, SITE = int(sys.argv[1]), sys.argv[2], sys.argv[3]   # e.g. 8766 job-boards.greenhouse.io Greenhouse
+ALLOW_POST = sys.argv[4] if len(sys.argv) > 4 else ''
 DROP = {'content-security-policy', 'content-security-policy-report-only', 'content-encoding', 'content-length',
         'transfer-encoding', 'strict-transport-security', 'x-frame-options', 'connection', 'alt-svc'}
 class H(http.server.BaseHTTPRequestHandler):
@@ -20,13 +23,17 @@ class H(http.server.BaseHTTPRequestHandler):
                 body = open(path, 'rb').read()
                 if name == 'bundle.js':
                     body = ('window.__jsTargetSite=%r;\n' % SITE).encode() + body
+                else:
+                    body = ('window.__jsAllowPost=%r;\n' % ALLOW_POST).encode() + body
                 return self.send(200, body, 'application/javascript')
             return self.send(404, b'nope')
-        req = urllib.request.Request('https://' + TARGET + self.path, headers={
+        self.forward()
+    def forward(self, data=None):
+        req = urllib.request.Request('https://' + TARGET + self.path, data=data, headers={
             'User-Agent': self.headers.get('User-Agent', 'Mozilla/5.0'), 'Accept': self.headers.get('Accept', '*/*'),
             'Accept-Language': 'en-US,en;q=0.9', 'Accept-Encoding': 'identity',
             'Cookie': self.headers.get('Cookie', ''), 'X-Requested-With': self.headers.get('X-Requested-With', ''),
-            'Referer': 'https://' + TARGET + '/'})
+            'Content-Type': self.headers.get('Content-Type', ''), 'Referer': 'https://' + TARGET + '/'})
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self, *a, **k): return None
         opener = urllib.request.build_opener(NoRedirect)
@@ -49,5 +56,8 @@ class H(http.server.BaseHTTPRequestHandler):
             body = html.encode('utf-8')
         self.send(code, body, ctype, extra)
     def _refuse(self): self.send(405, b'JobScript test proxy: only GET is allowed')
-    do_POST = do_PUT = do_PATCH = do_DELETE = _refuse
+    def do_POST(self):
+        if not (ALLOW_POST and re.search(ALLOW_POST, self.path)): return self._refuse()
+        self.forward(self.rfile.read(int(self.headers.get('Content-Length') or 0)))
+    do_PUT = do_PATCH = do_DELETE = _refuse
 http.server.ThreadingHTTPServer(('127.0.0.1', PORT), H).serve_forever()
