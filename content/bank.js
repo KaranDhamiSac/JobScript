@@ -138,7 +138,7 @@
       }, 0);
     };
     const targets = container ? [container] : els;
-    const types = ['text', 'textarea', 'combobox', 'listbox', 'datetext', 'datesections'].includes(f.kind) ? ['change', 'focusout']
+    const types = ['text', 'textarea', 'combobox', 'listbox', 'prompt', 'datetext', 'datesections'].includes(f.kind) ? ['change', 'focusout']
       : f.kind === 'yesno' ? ['click'] : ['change'];
     for (const t of targets) {
       for (const type of types) {

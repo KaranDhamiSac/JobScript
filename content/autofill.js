@@ -220,18 +220,31 @@
 
   // Date fields split into Month / Day / Year sections you type into (Material UI's newer date
   // pickers). Returns { month, day, year } section elements, or null if el isn't one.
+  // Workday's version: one to three spinbutton inputs in a dateInputWrapper (MM/YYYY for jobs,
+  // YYYY for school years), which may then hold only some of the parts.
+  const DATE_WRAPPER = '[data-automation-id="dateInputWrapper"]';
+
   function dateSections(group) {
+    const workday = group.matches(DATE_WRAPPER);
     const spins = [...group.querySelectorAll('[role="spinbutton"]')];
-    if (spins.length !== 3) return null;
+    if (workday ? !spins.length || spins.length > 3 : spins.length !== 3) return null;
     const parts = {};
     for (const s of spins) {
-      const part = /month/i.test(s.getAttribute('aria-label')) ? 'month'
-        : /day/i.test(s.getAttribute('aria-label')) ? 'day'
-        : /year/i.test(s.getAttribute('aria-label')) ? 'year' : null;
+      const text = (s.getAttribute('aria-label') || '') + ' ' + (s.getAttribute('data-automation-id') || '');
+      const part = /month/i.test(text) ? 'month' : /day/i.test(text) ? 'day' : /year/i.test(text) ? 'year' : null;
       if (!part || parts[part]) return null;
       parts[part] = s;
     }
-    return parts;
+    return workday && !parts.year ? null : parts;
+  }
+
+  // Workday's search prompts ("How did you hear about us?", school, field of study, skills): you
+  // type, press Enter to search and pick a result, which shows as a pill while the box empties.
+  const PROMPT_BOX = '[data-automation-id="multiSelectContainer"]';
+
+  function promptPicks(el) {
+    const box = el.closest(PROMPT_BOX);
+    return box ? [...box.querySelectorAll('[data-automation-id="selectedItem"]')] : [];
   }
 
   // Yes/No questions built from two toggle buttons (Ashby), often over a hidden checkbox that
@@ -245,6 +258,7 @@
   }
 
   function sectionEmpty(s) {
+    if (s.tagName === 'INPUT') return !/\d/.test(s.value);
     return s.getAttribute('aria-valuetext') === 'Empty' || !/\d/.test(s.textContent);
   }
 
@@ -409,15 +423,16 @@
       (p) => p && yesNoButtons(p) && !isOffLimits(p)
     );
     for (const el of yesNo) out.push({ el, kind: 'yesno' });
-    for (const el of deepQueryAll(root, 'input, select, textarea, [role="group"], ' + LISTBOX_SELECTOR)) {
+    for (const el of deepQueryAll(root, `input, select, textarea, [role="group"], ${DATE_WRAPPER}, ${LISTBOX_SELECTOR}`)) {
       if (el.disabled || isOffLimits(el)) continue;
       if (yesNo.some((p) => p.contains(el))) continue; // the hidden checkbox behind Yes/No buttons
       if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
-        if (el.getAttribute('role') === 'group') {
+        if (el.getAttribute('role') === 'group' || el.matches(DATE_WRAPPER)) {
           if (dateSections(el)) out.push({ el, kind: 'datesections' });
         } else if (isListboxButton(el)) out.push({ el, kind: 'listbox' });
         continue;
       }
+      if (el.closest(DATE_WRAPPER)) continue; // a section of a date, handled with its wrapper
       const type = (el.getAttribute('type') || '').toLowerCase();
       if (el.tagName === 'INPUT' && SKIP_INPUT_TYPES.has(type)) continue;
       if (el.readOnly && type !== 'file' && !isCombobox(el)) continue;
@@ -445,6 +460,7 @@
       else if (type === 'checkbox') kind = 'checkbox';
       else if (type === 'radio') kind = 'radio';
       else if (type === 'date' || type === 'month') kind = type;
+      else if (el.closest(PROMPT_BOX)) kind = 'prompt';
       else if (isCombobox(el)) kind = 'combobox';
       else if (DATE_PLACEHOLDER.test(el.getAttribute('placeholder') || '')) kind = 'datetext';
       else kind = 'text';
@@ -461,7 +477,7 @@
     }
 
     return out.filter((f) => {
-      if (['text', 'textarea', 'select', 'listbox', 'date', 'month', 'datetext', 'datesections'].includes(f.kind)) {
+      if (['text', 'textarea', 'select', 'listbox', 'prompt', 'date', 'month', 'datetext', 'datesections'].includes(f.kind)) {
         return isReallyVisible(f.el);
       }
       return (f.groupInputs || [f.el]).some((e) => isVisible(e) || isVisible(e.closest('label') || e.parentElement));
@@ -555,6 +571,8 @@
         const parts = dateSections(el);
         return !parts || Object.values(parts).some(sectionEmpty);
       }
+      case 'prompt':
+        return !promptPicks(el).length;
       default:
         return !clean(el.value);
     }
@@ -821,8 +839,10 @@
       case 'datesections': {
         const parts = dateSections(el);
         if (!parts || Object.values(parts).some(sectionEmpty)) return '';
-        return [parts.month, parts.day, parts.year].map((s) => clean(s.textContent)).join('/');
+        return [parts.month, parts.day, parts.year].filter(Boolean).map((s) => clean(s.tagName === 'INPUT' ? s.value : s.textContent)).join('/');
       }
+      case 'prompt':
+        return promptPicks(el).map((p) => clean(p.textContent)).join(', ');
       default:
         return clean(el.value);
     }
@@ -1260,8 +1280,11 @@
   function listboxOptions(el) {
     const id = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
     let list = id && byIdNear(el, id);
-    if (!list || !isVisible(list)) list = [...document.querySelectorAll('[role="listbox"]')].filter(isVisible).pop();
-    return list ? [...list.querySelectorAll('[role="option"]')].filter(isVisible) : [];
+    // Workday's lists open in a portal as activeListContainer, with promptOption items.
+    if (!list || !isVisible(list)) list = [...document.querySelectorAll('[role="listbox"], [data-automation-id="activeListContainer"]')].filter(isVisible).pop();
+    if (!list) return [];
+    const opts = [...list.querySelectorAll('[role="option"]')].filter(isVisible);
+    return opts.length ? opts : [...list.querySelectorAll('[data-automation-id="promptOption"]')].filter(isVisible);
   }
 
   async function openListbox(el) {
@@ -1322,6 +1345,17 @@
     const digits = { month: String(date.m).padStart(2, '0'), day: String(date.d || 1).padStart(2, '0'), year: date.y };
     for (const part of ['month', 'day', 'year']) {
       let s = dateSections(f.el)[part];
+      if (!s) continue;
+      // Workday's sections are inputs: set each whole, the way its own change handler reads it.
+      if (s.tagName === 'INPUT') {
+        s.focus();
+        s.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+        setNativeValue(s, digits[part]);
+        s.dispatchEvent(new Event('input', { bubbles: true }));
+        s.dispatchEvent(new Event('change', { bubbles: true }));
+        await sleep(80);
+        continue;
+      }
       s.focus();
       s.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
       s.click();
@@ -1334,9 +1368,40 @@
       }
     }
     const last = document.activeElement;
-    if (last && f.el.contains(last)) last.blur();
+    if (last && f.el.contains(last)) {
+      last.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+      last.blur();
+    }
     await sleep(80);
     return !isEmpty(f);
+  }
+
+  function promptOptions() {
+    return [...document.querySelectorAll('[data-automation-id="promptOption"]')].filter(isVisible);
+  }
+
+  async function fillPrompt(f, value, allowWeak) {
+    const el = f.el;
+    const degreeSearch = value.hint.key === 'degree' && parseDegree(value.text).search;
+    el.focus();
+    setNativeValue(el, degreeSearch || value.text.slice(0, 40));
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    keyEvent(el, 'Enter', 13);
+    const opts = await waitFor(() => { const o = promptOptions(); return o.length ? o : null; }, 3000);
+    const pick = opts ? pickSuggestion(opts, value) : { index: -1, strong: false };
+    const weak = pick.index >= 0 && !pick.strong && !allowWeak;
+    if (pick.index < 0 || weak) {
+      setNativeValue(el, '');
+      el.dispatchEvent(new Event('input', { bubbles: true }));
+      keyEvent(el, 'Escape', 27);
+      el.blur();
+      return weak ? { weakPick: clean(opts[pick.index].textContent) } : false;
+    }
+    clickOption(opts[pick.index]);
+    await waitFor(() => promptPicks(el).length > 0, 1500);
+    keyEvent(el, 'Escape', 27);
+    el.blur();
+    return promptPicks(el).length > 0;
   }
 
   async function fillCombobox(f, value, allowWeak) {
@@ -1413,6 +1478,7 @@
       case 'combobox': return fillCombobox(f, value, allowWeak);
       case 'listbox': return fillListbox(f, value, allowWeak);
       case 'datesections': return fillDateSections(f, value);
+      case 'prompt': return fillPrompt(f, value, allowWeak);
       default: {
         const box = f.kind === 'text' && suggestionBox(f.el);
         return box ? fillAutocompleteText(f.el, value, box, allowWeak) : fillText(f.el, value.text);
