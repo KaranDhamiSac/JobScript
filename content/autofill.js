@@ -1835,11 +1835,13 @@
 
   // One pass over the form: scan every field, then fill. With onlyNew, fields handled by an
   // earlier pass are skipped.
-  async function runPass(root, profile, resume, onlyNew) {
+  // skip: elements already processed in this fill (the resume attached first).
+  async function runPass(root, profile, resume, onlyNew, skip) {
     const fields = analyze(root, profile);
     let processed = 0;
     for (const f of fields) {
       const els = f.groupInputs || [f.el];
+      if (skip && els.some((e) => skip.has(e))) continue;
       if (onlyNew && els.every((e) => handled.has(e))) continue;
       els.forEach((e) => handled.add(e));
       registry.set(f.id, f);
@@ -1847,6 +1849,38 @@
       await processField(f, resume);
     }
     return { found: fields.length, processed };
+  }
+
+  // Resolves once el's subtree has had no changes for quietMs, or after maxMs.
+  function waitForQuiet(el, quietMs, maxMs) {
+    return new Promise((resolve) => {
+      let timer = null;
+      const done = () => {
+        observer.disconnect();
+        clearTimeout(timer);
+        clearTimeout(cap);
+        resolve();
+      };
+      const observer = new MutationObserver(() => {
+        clearTimeout(timer);
+        timer = setTimeout(done, quietMs);
+      });
+      observer.observe(el, { childList: true, subtree: true, attributes: true, characterData: true });
+      timer = setTimeout(done, quietMs);
+      const cap = setTimeout(done, maxMs);
+    });
+  }
+
+  // Attach the resume before filling anything else: Lever, Ashby, iCIMS and Workday parse an
+  // uploaded resume and refill or redraw the form, which would overwrite answers typed before it.
+  // Returns the elements it handled.
+  async function attachResumeFirst(root, profile, resume) {
+    const f = analyze(root, profile).find((x) => x.kind === 'file' && x.match && x.match.key === 'resume' && x.match.tier === 'high');
+    if (!f) return new Set();
+    handled.add(f.el);
+    registry.set(f.id, f);
+    if ((await processField(f, resume)) === 'filled') await waitForQuiet(document.body, 700, 6000);
+    return new Set([f.el]);
   }
 
   function summary() {
@@ -2374,7 +2408,7 @@
       const resume = tailored || master;
       // Pages that render their form after load (React apps) may not have fields yet.
       if (!collectFields(findRoot().root).length) await waitFor(() => collectFields(findRoot().root).length > 0, 3000);
-      const { root, site } = findRoot();
+      let { root, site } = findRoot();
       clearHighlights();
       registry.clear();
       globalThis.JobScriptBank.reset();
@@ -2395,13 +2429,16 @@
         review: null,
       };
       Object.assign(session, (({ title, company }) => ({ jobTitle: title, company }))(titleAndCompany()));
+      const first = await attachResumeFirst(root, profile, resume);
+      if (first.size) root = findRoot().root; // a parsed resume may have redrawn the form
       await ensureEntries(root, profile);
 
       // Start watching before the pass, so fields revealed by our own answers
       // (e.g. a follow-up question) are caught too. Late passes wait until this one finishes.
       watchForLateFields(profile, resume);
 
-      const s = await runPass(root, profile, resume, false);
+      const s = await runPass(root, profile, resume, false, first);
+      s.found += first.size;
       if (!s.found) {
         if (stopWatching) stopWatching();
         if (stepWatcher) stepWatcher();
