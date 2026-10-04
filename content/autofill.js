@@ -107,6 +107,82 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Shadow DOM. Web-component forms (SmartRecruiters' spl-* elements, LinkedIn's newer layout)
+  // keep their inputs in open shadow roots, which querySelectorAll and closest() don't enter.
+
+  // JobScript's own panel and prompt; their roots are closed, except in the test bundle.
+  const OWN_HOSTS = /^JOBSCRIPT-/;
+
+  // root.querySelectorAll(sel), also searching open shadow roots, in page order.
+  function deepQueryAll(root, sel) {
+    const out = [];
+    const visit = (r) => {
+      for (const el of r.querySelectorAll('*')) {
+        if (el.matches(sel)) out.push(el);
+        if (el.shadowRoot && !OWN_HOSTS.test(el.tagName)) visit(el.shadowRoot);
+      }
+    };
+    visit(root);
+    return out;
+  }
+
+  // The parent element, stepping out of a shadow root to its host.
+  function parentOf(n) {
+    return n.parentElement || (n.parentNode && n.parentNode.host) || null;
+  }
+
+  function closestDeep(el, sel) {
+    for (let n = el; n; n = n.getRootNode().host || null) {
+      const hit = n.closest(sel);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  // getElementById in el's own tree (its shadow root, or the document), then in the trees
+  // around it: SmartRecruiters' input points at a menu in its outer component.
+  function byIdNear(el, id) {
+    for (let root = el.getRootNode(); root; root = root.host ? root.host.getRootNode() : null) {
+      const hit = root.getElementById && root.getElementById(id);
+      if (hit) return hit;
+    }
+    return null;
+  }
+
+  // The element whose text shows for an option: options rendered inside a component's shadow
+  // root (a slot) have no text of their own, so step out to the host that has it.
+  function optionWithText(o) {
+    let n = o;
+    while (!clean(n.textContent) && n.getRootNode().host) n = n.getRootNode().host;
+    return n;
+  }
+
+  // The element itself, or for one inside shadow roots the outermost host, which page CSS
+  // (JobScript's highlights) can reach.
+  function outerHost(el) {
+    let n = el;
+    while (n.getRootNode().host) n = n.getRootNode().host;
+    return n;
+  }
+
+  // The hosts around a node, outermost first, ending with the node itself.
+  function hostPath(n) {
+    const path = [n];
+    for (let r = n.getRootNode(); r.host; r = r.host.getRootNode()) path.unshift(r.host);
+    return path;
+  }
+
+  // True when a comes before b on the page, including across shadow roots.
+  function inPageOrder(a, b) {
+    const pa = hostPath(a);
+    const pb = hostPath(b);
+    let i = 0;
+    while (i < pa.length - 1 && i < pb.length - 1 && pa[i] === pb[i]) i++;
+    if (pa[i] === pb[i]) return pa.length < pb.length; // a host comes before its shadow content
+    return !!(pa[i].compareDocumentPosition(pb[i]) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  // ---------------------------------------------------------------------------
   // DOM inspection
 
   function isVisible(el) {
@@ -205,10 +281,11 @@
     return '';
   }
 
-  function textOfIds(ids) {
+  function textOfIds(ids, root) {
+    const scope = root && root.getElementById ? root : document;
     return (ids || '')
       .split(/\s+/)
-      .map((id) => id && document.getElementById(id))
+      .map((id) => id && scope.getElementById(id))
       .filter(Boolean)
       .map((n) => n.textContent)
       .join(' ');
@@ -218,7 +295,7 @@
     const parts = [];
     // Material UI's Select lists its own id here too, which would add the chosen option.
     const ids = (el.getAttribute('aria-labelledby') || '').split(/\s+/).filter((id) => id && id !== el.id);
-    const labelledBy = textOfIds(ids.join(' '));
+    const labelledBy = textOfIds(ids.join(' '), el.getRootNode());
     if (clean(labelledBy)) parts.push(labelledBy);
     if (!parts.length && el.labels && el.labels.length) {
       for (const l of el.labels) parts.push(textWithoutControls(l));
@@ -226,6 +303,10 @@
     if (!parts.length) {
       const wrap = el.closest('label');
       if (wrap) parts.push(textWithoutControls(wrap));
+    }
+    // Web components often carry the label on a host around the input (spl-phone-field).
+    for (let n = el.getRootNode().host; n && !clean(parts.join('')); n = n.getRootNode().host) {
+      if (n.getAttribute('label')) parts.push(n.getAttribute('label'));
     }
     if (!parts.length || !clean(parts.join(''))) parts.push(nearbyText(el));
     return clean(parts.join(' '));
@@ -260,7 +341,7 @@
     }
     const group = first.closest('[role="radiogroup"], [role="group"]');
     if (group) {
-      const t = textOfIds(group.getAttribute('aria-labelledby')) || group.getAttribute('aria-label');
+      const t = textOfIds(group.getAttribute('aria-labelledby'), group.getRootNode()) || group.getAttribute('aria-label');
       if (clean(t)) return clean(t);
     }
     const t = nearbyText(commonAncestor(inputs));
@@ -270,7 +351,7 @@
 
   function ancestorContext(el) {
     const bits = [];
-    for (let n = el.parentElement, d = 0; n && d < 3; n = n.parentElement, d++) {
+    for (let n = parentOf(el), d = 0; n && d < 3; n = parentOf(n), d++) {
       bits.push(n.id || '');
       if (typeof n.className === 'string') bits.push(n.className);
     }
@@ -309,7 +390,7 @@
   // resume parser, chat widgets): the current site's `never` selectors in lib/fieldMap.js.
   function isOffLimits(el) {
     const site = currentSite();
-    return isHoneypot(el) || !!(site && site.never && site.never.some((sel) => el.closest(sel)));
+    return isHoneypot(el) || !!(site && site.never && site.never.some((sel) => closestDeep(el, sel)));
   }
 
   // A fieldset holding only checkboxes is one question even when each box has its own name
@@ -324,11 +405,11 @@
   function collectFields(root) {
     const out = [];
     const groups = new Map();
-    const yesNo = [...new Set([...root.querySelectorAll('button[aria-pressed]')].map((b) => b.parentElement))].filter(
+    const yesNo = [...new Set(deepQueryAll(root, 'button[aria-pressed]').map((b) => b.parentElement))].filter(
       (p) => p && yesNoButtons(p) && !isOffLimits(p)
     );
     for (const el of yesNo) out.push({ el, kind: 'yesno' });
-    for (const el of root.querySelectorAll('input, select, textarea, [role="group"], ' + LISTBOX_SELECTOR)) {
+    for (const el of deepQueryAll(root, 'input, select, textarea, [role="group"], ' + LISTBOX_SELECTOR)) {
       if (el.disabled || isOffLimits(el)) continue;
       if (yesNo.some((p) => p.contains(el))) continue; // the hidden checkbox behind Yes/No buttons
       if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
@@ -394,7 +475,7 @@
     const r = el.getBoundingClientRect();
     if (r.width < 4 || r.height < 4) return false;
     if (r.right + window.scrollX <= 0 || r.bottom + window.scrollY <= 0) return false;
-    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+    for (let n = el; n && n.nodeType === 1; n = parentOf(n)) {
       if (parseFloat(getComputedStyle(n).opacity) < 0.05) return false;
     }
     return true;
@@ -403,7 +484,7 @@
   function headingAbove(el, headings) {
     let best = null;
     for (const h of headings) {
-      if (h.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) best = h;
+      if (inPageOrder(h, el)) best = h;
       else break;
     }
     return best ? clean(best.textContent) : '';
@@ -420,8 +501,10 @@
     for (const [key, sec] of entries) {
       if (sec.labelPatterns && sec.labelPatterns.some((re) => re.test(label))) return key;
     }
-    for (let n = el.parentElement, d = 0; n && n !== root && d < 8; n = n.parentElement, d++) {
-      const s = (n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : '');
+    for (let n = parentOf(el), d = 0; n && n !== root && d < 8; n = parentOf(n), d++) {
+      // Hooks like data-test="add-experience" (SmartRecruiters) or Workday's section ids.
+      const hooks = ['data-test', 'data-automation-id', 'aria-labelledby'].map((a) => n.getAttribute(a) || '').join(' ');
+      const s = (n.id || '') + ' ' + (typeof n.className === 'string' ? n.className : '') + ' ' + hooks;
       for (const [key, sec] of entries) {
         if (sec.attrPatterns.some((re) => re.test(s))) return key;
       }
@@ -742,7 +825,7 @@
   }
 
   function analyze(root, profile) {
-    const headings = [...root.querySelectorAll(HEADING_SELECTOR)].filter((h) => {
+    const headings = deepQueryAll(root, HEADING_SELECTOR).filter((h) => {
       const t = clean(h.textContent);
       return t && t.length <= 80;
     });
@@ -787,10 +870,11 @@
 
   function findAddButton(root, sectionKey, headings) {
     const sec = FM.sections[sectionKey];
-    const candidates = root.querySelectorAll('button, a, [role="button"], input[type="button"]');
+    const candidates = deepQueryAll(root, 'button, a, [role="button"], input[type="button"]');
     for (const btn of candidates) {
       if (!isVisible(btn)) continue;
-      const text = clean(btn.textContent || btn.value);
+      // A button inside a component shows its host's text through a slot.
+      const text = clean(optionWithText(btn).textContent || btn.value);
       if (!text || text.length > 40) continue;
       if (!sec.addButton.some((re) => re.test(text))) continue;
       if (sectionOf(btn, root, headings) === sectionKey) return btn;
@@ -823,7 +907,7 @@
           (f) => f.match && f.match.section === sectionKey && f.match.key === sec.anchor
         ).length;
         if (have >= wanted) break;
-        const headings = [...root.querySelectorAll(HEADING_SELECTOR)];
+        const headings = deepQueryAll(root, HEADING_SELECTOR);
         const btn = findAddButton(root, sectionKey, headings);
         if (!btn) break;
         await clickAndWaitForChange(btn, root);
@@ -987,7 +1071,7 @@
 
   // React and similar frameworks only notice changes that arrive as real events.
   function fireEvents(el) {
-    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
     el.dispatchEvent(new FocusEvent('blur'));
     el.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
@@ -1042,8 +1126,9 @@
 
   function comboOptions(el) {
     const id = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-    const listbox = id && document.getElementById(id);
+    const listbox = id && byIdNear(el, id);
     let opts = listbox ? [...listbox.querySelectorAll('[role="option"]')] : [];
+    if (listbox && !opts.length) opts = [...new Set(deepQueryAll(listbox, '[role="option"]').map(optionWithText))];
     if (!opts.length) {
       const c = comboContainer(el);
       if (c) opts = [...c.querySelectorAll('[role="option"], [class*="__option"]')];
@@ -1055,10 +1140,13 @@
     el.dispatchEvent(new KeyboardEvent('keydown', { key, keyCode, which: keyCode, bubbles: true }));
   }
 
+  // click() rather than a dispatched click event: web components such as SmartRecruiters'
+  // spl-select-option select themselves in their own click() method.
   function clickOption(opt) {
-    for (const type of ['mouseover', 'mousedown', 'mouseup', 'click']) {
+    for (const type of ['mouseover', 'mousedown', 'mouseup']) {
       opt.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, view: window }));
     }
+    opt.click();
   }
 
   // Best search result for a typed value. Location/school searches often return
@@ -1167,7 +1255,7 @@
   // (Material UI renders it in a portal at the end of the page).
   function listboxOptions(el) {
     const id = el.getAttribute('aria-controls') || el.getAttribute('aria-owns');
-    let list = id && document.getElementById(id);
+    let list = id && byIdNear(el, id);
     if (!list || !isVisible(list)) list = [...document.querySelectorAll('[role="listbox"]')].filter(isVisible).pop();
     return list ? [...list.querySelectorAll('[role="option"]')].filter(isVisible) : [];
   }
@@ -1334,6 +1422,10 @@
   const STATUS_CLASS = { filled: FILLED_CLASS, needs: NEEDS_CLASS, suggested: SUGGESTED_CLASS };
 
   function highlightTarget(f) {
+    return outerHost(highlightElement(f));
+  }
+
+  function highlightElement(f) {
     if (f.groupInputs) {
       const c = commonAncestor(f.groupInputs);
       return f.groupInputs.length === 1 ? f.groupInputs[0].closest('label') || c : c;
@@ -1424,7 +1516,7 @@
     if (!session) return;
     const fields = [...registry.values()]
       .filter((f) => f.el.isConnected)
-      .sort((a, b) => (a.el.compareDocumentPosition(b.el) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1));
+      .sort((a, b) => (inPageOrder(a.el, b.el) ? -1 : 1));
     const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft);
     const actions = [{ label: 'Job description', onClick: () => chrome.runtime.sendMessage({ type: 'job-start' }) }];
     if (session.stepPending) actions.push({ label: 'Fill this step', primary: true, onClick: fillStep });
@@ -1466,7 +1558,7 @@
     if (site) {
       for (const sel of site.formSelectors) {
         for (const node of document.querySelectorAll(sel)) {
-          const count = node.querySelectorAll('input, select, textarea').length;
+          const count = deepQueryAll(node, 'input, select, textarea').length;
           if (count && (!best || count > best.count)) best = { node, count };
         }
       }
@@ -1784,10 +1876,14 @@
     let debounce = null;
     let endTimer = null;
 
+    // Custom elements count too: their inputs may sit in a shadow root (SmartRecruiters).
     const addsField = (records) =>
       records.some((r) =>
         [...r.addedNodes].some(
-          (n) => n.nodeType === 1 && (n.matches('input, select, textarea') || n.querySelector('input, select, textarea'))
+          (n) =>
+            n.nodeType === 1 &&
+            (n.matches('input, select, textarea') || n.querySelector('input, select, textarea') ||
+              (n.tagName.includes('-') && !OWN_HOSTS.test(n.tagName)))
         )
       );
 
