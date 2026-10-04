@@ -2105,6 +2105,29 @@
     return FM.sites.find((s) => s.hosts.some((re) => re.test(location.hostname))) || null;
   }
 
+  // schema.org JobPosting data that many job sites embed (Ashby, Workday, iCIMS):
+  // { title, company, description } or null.
+  function jsonLdPosting(doc) {
+    for (const node of doc.querySelectorAll('script[type="application/ld+json"]')) {
+      let data;
+      try {
+        data = JSON.parse(node.textContent);
+      } catch (e) {
+        continue;
+      }
+      const posting = [].concat(data, (data && data['@graph']) || []).find((d) => d && d['@type'] === 'JobPosting');
+      if (!posting) continue;
+      const org = posting.hiringOrganization;
+      const html = String(posting.description || '').replace(/<br\s*\/?>|<\/(p|li|h\d|div)>/gi, '$&\n');
+      return {
+        title: clean(posting.title),
+        company: clean(org && typeof org === 'object' ? org.name : org),
+        description: new DOMParser().parseFromString(html, 'text/html').body.textContent || '',
+      };
+    }
+    return null;
+  }
+
   function descriptionFrom(doc) {
     const site = currentSite();
     for (const sel of (site && site.jobDescriptionSelectors) || []) {
@@ -2117,19 +2140,21 @@
       }
       if (clean(best).length > 200) return best;
     }
-    return '';
+    const ld = jsonLdPosting(doc);
+    return ld && clean(ld.description).length > 200 ? ld.description : '';
   }
 
-  // Job title and company from the page title and metadata ("Job Application for X at Y" on
-  // Greenhouse, "Company - Title" on Lever), falling back to the heading and the URL.
+  // Job title and company from the page title ("Job Application for X at Y" on Greenhouse, or
+  // the site's `titlePattern`), then JSON-LD and metadata, falling back to the heading and URL.
   function titleAndCompany() {
     const t = clean(document.title);
     let m = t.match(/^Job Application for (.+?) at (.+)$/i);
     if (m) return { title: m[1], company: m[2] };
-    if (currentSite() && currentSite().name === 'Lever') {
-      m = t.match(/^(.+?)\s+-\s+(.+)$/);
-      if (m) return { title: m[2], company: m[1] };
-    }
+    const tp = currentSite() && currentSite().titlePattern;
+    m = tp && t.match(tp.re);
+    if (m) return { title: clean(m[tp.title]), company: clean(m[tp.company]) };
+    const ld = jsonLdPosting(document);
+    if (ld && ld.title && ld.company) return { title: ld.title, company: ld.company };
     const og = document.querySelector('meta[property="og:site_name"]');
     const h1 = document.querySelector('h1, h2');
     const slug = decodeURIComponent(location.pathname.split('/')[1] || '');
@@ -2150,10 +2175,11 @@
   async function jobPosting() {
     const { title, company } = titleAndCompany();
     let description = '';
-    // On an /apply page the posting is on the page without /apply; read it from there first.
-    if (/\/apply\/?$/.test(location.pathname)) {
+    // On an /apply page (Ashby: /application) the posting is on the page without it; read it
+    // from there first.
+    if (/\/(apply|application)\/?$/.test(location.pathname)) {
       try {
-        const res = await fetch(location.href.replace(/\/apply\/?(\?.*)?$/, ''), { credentials: 'same-origin' });
+        const res = await fetch(location.href.replace(/\/(apply|application)\/?(\?.*)?$/, ''), { credentials: 'same-origin' });
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         description = descriptionFrom(doc);
       } catch (e) {
