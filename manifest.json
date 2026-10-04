@@ -16,7 +16,8 @@
     "https://job-boards.greenhouse.io/*",
     "https://job-boards.eu.greenhouse.io/*",
     "https://jobs.lever.co/*",
-    "https://jobs.eu.lever.co/*"
+    "https://jobs.eu.lever.co/*",
+    "https://jobs.ashbyhq.com/*"
   ],
   "optional_host_permissions": [
     "https://api.anthropic.com/*",
@@ -54,7 +55,8 @@
         "https://job-boards.greenhouse.io/*",
         "https://job-boards.eu.greenhouse.io/*",
         "https://jobs.lever.co/*",
-        "https://jobs.eu.lever.co/*"
+        "https://jobs.eu.lever.co/*",
+        "https://jobs.ashbyhq.com/*"
       ],
       "js": [
         "lib/storage.js",
