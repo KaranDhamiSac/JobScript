@@ -158,6 +158,16 @@
     return parts;
   }
 
+  // Yes/No questions built from two toggle buttons (Ashby), often over a hidden checkbox that
+  // only mirrors the buttons. Returns the [yes, no] buttons, or null if el isn't such a pair.
+  function yesNoButtons(el) {
+    const btns = [...el.children].filter((b) => b.tagName === 'BUTTON' && b.hasAttribute('aria-pressed'));
+    if (btns.length !== 2) return null;
+    const kinds = btns.map((b) => classifyBool(clean(b.textContent)));
+    if (kinds[0] === 'yes' && kinds[1] === 'no') return btns;
+    return kinds[0] === 'no' && kinds[1] === 'yes' ? [btns[1], btns[0]] : null;
+  }
+
   function sectionEmpty(s) {
     return s.getAttribute('aria-valuetext') === 'Empty' || !/\d/.test(s.textContent);
   }
@@ -238,6 +248,9 @@
     if (fieldset) {
       const legend = fieldset.querySelector('legend');
       if (legend && clean(legend.textContent)) return clean(legend.textContent);
+      // Ashby titles the fieldset with a plain label as its first child instead of a legend.
+      const title = fieldset.querySelector(':scope > label:first-child');
+      if (title && !title.querySelector('input') && clean(title.textContent)) return clean(title.textContent);
     }
     const group = first.closest('[role="radiogroup"], [role="group"]');
     if (group) {
@@ -293,11 +306,25 @@
     return isHoneypot(el) || !!(site && site.never && site.never.some((sel) => el.closest(sel)));
   }
 
+  // A fieldset holding only checkboxes is one question even when each box has its own name
+  // (Ashby names every box after its option).
+  function checkboxFieldset(el) {
+    const fs = el.closest('fieldset');
+    if (!fs) return null;
+    const inputs = fs.querySelectorAll('input:not([type="hidden"]), select, textarea');
+    return inputs.length > 1 && [...inputs].every((i) => i.type === 'checkbox') ? fs : null;
+  }
+
   function collectFields(root) {
     const out = [];
     const groups = new Map();
+    const yesNo = [...new Set([...root.querySelectorAll('button[aria-pressed]')].map((b) => b.parentElement))].filter(
+      (p) => p && yesNoButtons(p) && !isOffLimits(p)
+    );
+    for (const el of yesNo) out.push({ el, kind: 'yesno' });
     for (const el of root.querySelectorAll('input, select, textarea, [role="group"], ' + LISTBOX_SELECTOR)) {
       if (el.disabled || isOffLimits(el)) continue;
+      if (yesNo.some((p) => p.contains(el))) continue; // the hidden checkbox behind Yes/No buttons
       if (!/^(INPUT|SELECT|TEXTAREA)$/.test(el.tagName)) {
         if (el.getAttribute('role') === 'group') {
           if (dateSections(el)) out.push({ el, kind: 'datesections' });
@@ -310,8 +337,9 @@
       // react-select's hidden "requiredInput" twin of each dropdown; the dropdown itself is handled.
       if (el.getAttribute('aria-hidden') === 'true' && el.tabIndex === -1) continue;
 
-      if ((type === 'radio' || type === 'checkbox') && el.name) {
-        const gk = type + ':' + el.name;
+      const box = type === 'checkbox' ? checkboxFieldset(el) : null;
+      if ((type === 'radio' || type === 'checkbox') && (el.name || box)) {
+        const gk = box ? box : type + ':' + el.name;
         const existing = groups.get(gk);
         if (existing) {
           existing.groupInputs.push(el);
@@ -413,6 +441,8 @@
         return !f.groupInputs.some((i) => i.checked);
       case 'checkbox':
         return !el.checked;
+      case 'yesno':
+        return !yesNoButtons(el).some((b) => b.getAttribute('aria-pressed') === 'true');
       case 'file':
         return (!el.files || el.files.length === 0) && !attachmentShown(el);
       case 'select': {
@@ -654,6 +684,7 @@
       return [...f.el.options].map((o) => clean(o.textContent)).filter((t) => t && !isPlaceholderOption(t));
     }
     if (f.groupInputs) return f.groupInputs.map(optionLabel).filter(Boolean);
+    if (f.kind === 'yesno') return yesNoButtons(f.el).map((b) => clean(b.textContent));
     return [];
   }
 
@@ -675,6 +706,10 @@
         return f.groupInputs.filter((i) => i.checked).map(optionLabel).join(', ');
       case 'checkbox':
         return el.checked ? 'Checked' : '';
+      case 'yesno': {
+        const on = yesNoButtons(el).find((b) => b.getAttribute('aria-pressed') === 'true');
+        return on ? clean(on.textContent) : '';
+      }
       case 'file':
         return el.files && el.files[0] ? el.files[0].name : '';
       case 'select': {
@@ -983,6 +1018,16 @@
     return input.checked;
   }
 
+  async function fillYesNo(f, value, allowWeak) {
+    const btns = yesNoButtons(f.el);
+    const pick = pickOptionDetailed(btns.map((b) => ({ text: b.textContent, value: '' })), value.text, value.hint);
+    if (pick.index < 0) return false;
+    if (!pick.strong && !allowWeak) return { weakPick: clean(btns[pick.index].textContent) };
+    if (btns[pick.index].getAttribute('aria-pressed') !== 'true') btns[pick.index].click();
+    await sleep(50);
+    return btns[pick.index].getAttribute('aria-pressed') === 'true';
+  }
+
   function fillCheckbox(el, value) {
     if (value.hint.bool !== 'yes') return true; // "no" means leave it unchecked
     if (!el.checked) el.click();
@@ -1266,6 +1311,7 @@
       case 'radio':
       case 'checkboxGroup': return fillChoiceGroup(f, value, allowWeak);
       case 'checkbox': return fillCheckbox(f.el, value);
+      case 'yesno': return fillYesNo(f, value, allowWeak);
       case 'combobox': return fillCombobox(f, value, allowWeak);
       case 'listbox': return fillListbox(f, value, allowWeak);
       case 'datesections': return fillDateSections(f, value);
@@ -1623,9 +1669,10 @@
     if (f.kind === 'file') return f.match.raw ? 'Your resume' : '';
     const v = resolveValue(f);
     if (!v) return '';
-    if (f.kind === 'select' || f.kind === 'radio' || f.kind === 'checkboxGroup') {
+    if (f.kind === 'select' || f.kind === 'radio' || f.kind === 'checkboxGroup' || f.kind === 'yesno') {
       const options = f.kind === 'select'
         ? [...f.el.options].map((o) => ({ text: o.textContent, value: o.value }))
+        : f.kind === 'yesno' ? f.options.map((t) => ({ text: t, value: '' }))
         : f.groupInputs.map((i) => ({ text: optionLabel(i), value: i.value }));
       const pick = pickOptionDetailed(options, v.text, v.hint);
       return pick.index >= 0 ? clean(options[pick.index].text) : '';
@@ -2017,7 +2064,7 @@
   async function aiQuestion(f) {
     let kind = 'short';
     let options = [];
-    if (f.kind === 'select' || f.kind === 'radio') {
+    if (f.kind === 'select' || f.kind === 'radio' || f.kind === 'yesno') {
       kind = 'choice';
       options = f.options;
     } else if (f.kind === 'checkboxGroup') {
