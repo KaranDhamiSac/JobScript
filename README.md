@@ -46,9 +46,10 @@ node dev/test-tracker-stats.mjs
 TZ=Asia/Kolkata node dev/test-tracker-stats.mjs
 node dev/test-date-rules.mjs
 node dev/test-site-answers.mjs
+node dev/test-job-ids.mjs
 ```
 
-Checks the tracker's date math (local-time days, streaks, week and month totals, heatmap levels and calendar grids), relative date rules for saved answers, and per-site answer storage (learned steps, concurrent saves, imports).
+Checks the tracker's date math (local-time days, streaks, week and month totals, heatmap levels and calendar grids), relative date rules for saved answers, per-site answer storage (learned steps, concurrent saves, imports), and job IDs taken from each platform's URLs.
 
 ### Mock form
 
