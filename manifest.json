@@ -18,7 +18,9 @@
     "https://jobs.lever.co/*",
     "https://jobs.eu.lever.co/*",
     "https://jobs.ashbyhq.com/*",
-    "https://jobs.smartrecruiters.com/*"
+    "https://jobs.smartrecruiters.com/*",
+    "https://*.myworkdayjobs.com/*",
+    "https://*.myworkdaysite.com/*"
   ],
   "optional_host_permissions": [
     "https://api.anthropic.com/*",
@@ -58,7 +60,9 @@
         "https://jobs.lever.co/*",
         "https://jobs.eu.lever.co/*",
         "https://jobs.ashbyhq.com/*",
-        "https://jobs.smartrecruiters.com/*"
+        "https://jobs.smartrecruiters.com/*",
+        "https://*.myworkdayjobs.com/*",
+        "https://*.myworkdaysite.com/*"
       ],
       "js": [
         "lib/storage.js",
