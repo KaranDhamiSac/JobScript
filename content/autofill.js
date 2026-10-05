@@ -1634,7 +1634,7 @@
     const fields = [...registry.values()]
       .filter((f) => f.el.isConnected)
       .sort((a, b) => (inPageOrder(a.el, b.el) ? -1 : 1));
-    const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft);
+    const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft && f.accept);
     const actions = [{ label: 'Job description', onClick: () => chrome.runtime.sendMessage({ type: 'job-start' }) }];
     if (session.stepPending) actions.push({ label: 'Fill this step', primary: true, onClick: fillStep });
     if (session.learning) {
@@ -1895,6 +1895,26 @@
     return v.text;
   }
 
+  // An empty resume field: offer to make a resume for this job (the job page shows the
+  // description to tailor from and attaches what you upload there; Tailor & Fill does it with
+  // Claude), or to send the master resume after all.
+  function askForJobResume(f, resume) {
+    const actions = [{ label: 'Make one for this job', primary: true, onClick: () => chrome.runtime.sendMessage({ type: 'job-start' }) }];
+    if (session.aiEnabled) actions.push({ label: 'Tailor with Claude', onClick: () => chrome.runtime.sendMessage({ type: 'tailor-start' }) });
+    actions.push({
+      label: 'Use master resume',
+      onClick: () => {
+        const ok = attachFile(f.el, resume);
+        setStatus(f, ok ? 'filled' : 'needs', ok ? preview(currentValueText(f)) : 'Could not attach your resume');
+        renderPanel();
+      },
+    });
+    f.accept = null;
+    setStatus(f, 'suggested', 'Attach a resume made for this job', { actions });
+    const ask = 'This application asks for a resume. Make one for this job from the job description, or use your master resume. ';
+    if (!session.note.includes(ask)) session.note = ask + session.note;
+  }
+
   // Fill one field and record its status.
   async function processField(f, resume) {
     // Tailor & Fill replaces whatever resume is attached with the tailored one.
@@ -1903,6 +1923,11 @@
     if (f.prefilled) {
       setStatus(f, 'filled', f.kind === 'file' ? 'A file is already attached' : 'Already had a value', { noHighlight: true });
       return 'already';
+    }
+    // Your master resume fills in your details; the resume you send is one made for this job.
+    if (f.kind === 'file' && f.match && f.match.key === 'resume' && !session.tailoredId) {
+      askForJobResume(f, resume);
+      return 'suggested';
     }
     const pct = f.match ? `${Math.round(f.match.confidence * 100)}% match` : '';
     if (f.match && f.match.tier === 'medium') {
@@ -2524,11 +2549,12 @@
     try {
       const tailoredId = opts && typeof opts.tailoredId === 'string' ? opts.tailoredId : '';
       const tailored = tailoredId ? await S.getTailored(tailoredId) : null;
-      const [profile, master, saved, answerSettings] = await Promise.all([
+      const [profile, master, saved, answerSettings, aiSettings] = await Promise.all([
         S.getProfile(),
         tailored ? null : S.getResume(),
         S.getSiteAnswers(location.origin),
         S.getAnswerSettings(),
+        S.getAiSettings(),
       ]);
       siteFields = saved.fields;
       if (opts && opts.learn && !saved.learning) {
@@ -2554,6 +2580,7 @@
         note: (tailored && !step ? `Attached your tailored resume (${tailored.name}). ` : '') + siteWarning() + DEFAULT_NOTE,
         forceResume: !!tailored && !step,
         tailoredId,
+        aiEnabled: !!aiSettings.enabled,
         stepPending: false,
         lastStep: step && session ? session.lastStep : null,
         review: null,
