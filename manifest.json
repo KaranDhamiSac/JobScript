@@ -21,7 +21,11 @@
     "https://jobs.smartrecruiters.com/*",
     "https://*.myworkdayjobs.com/*",
     "https://*.myworkdaysite.com/*",
-    "https://*.icims.com/*"
+    "https://*.icims.com/*",
+    "https://*.successfactors.com/*",
+    "https://*.successfactors.eu/*",
+    "https://*.sapsf.com/*",
+    "https://*.sapsf.eu/*"
   ],
   "optional_host_permissions": [
     "https://api.anthropic.com/*",
@@ -64,7 +68,11 @@
         "https://jobs.smartrecruiters.com/*",
         "https://*.myworkdayjobs.com/*",
         "https://*.myworkdaysite.com/*",
-        "https://*.icims.com/*"
+        "https://*.icims.com/*",
+        "https://*.successfactors.com/*",
+        "https://*.successfactors.eu/*",
+        "https://*.sapsf.com/*",
+        "https://*.sapsf.eu/*"
       ],
       "js": [
         "lib/storage.js",
