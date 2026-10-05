@@ -30,7 +30,8 @@
     "https://*.oraclecloud.com/*",
     "https://*.ultipro.com/*",
     "https://*.ultipro.ca/*",
-    "https://*.saashr.com/*"
+    "https://*.saashr.com/*",
+    "https://*.joinhandshake.com/*"
   ],
   "optional_host_permissions": [
     "https://api.anthropic.com/*",
@@ -82,7 +83,8 @@
         "https://*.oraclecloud.com/*",
         "https://*.ultipro.com/*",
         "https://*.ultipro.ca/*",
-        "https://*.saashr.com/*"
+        "https://*.saashr.com/*",
+        "https://*.joinhandshake.com/*"
       ],
       "js": [
         "lib/storage.js",
