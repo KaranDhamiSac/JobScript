@@ -225,6 +225,8 @@
 
   // Text boxes for a whole date, told apart by a placeholder such as "mm/dd/yyyy".
   const DATE_PLACEHOLDER = /^\s*(mm|dd|yyyy)\s*[-/.]\s*(mm|dd|yyyy)\s*[-/.]\s*(mm|dd|yyyy)\s*$/i;
+  // Ashby's date questions: a react-datepicker box that says "Pick date...".
+  const PICK_DATE = /^\s*pick (a )?date\b/i;
 
   // Date fields split into Month / Day / Year sections you type into (Material UI's newer date
   // pickers). Returns { month, day, year } section elements, or null if el isn't one.
@@ -484,7 +486,7 @@
       else if (type === 'date' || type === 'month') kind = type;
       else if (el.closest(PROMPT_BOX)) kind = 'prompt';
       else if (isCombobox(el)) kind = 'combobox';
-      else if (DATE_PLACEHOLDER.test(el.getAttribute('placeholder') || '')) kind = 'datetext';
+      else if (DATE_PLACEHOLDER.test(el.getAttribute('placeholder') || '') || PICK_DATE.test(el.getAttribute('placeholder') || '')) kind = 'datetext';
       else kind = 'text';
       const f = { el, kind };
       if (kind === 'radio') f.groupInputs = [el];
@@ -987,6 +989,7 @@
     if (/yyyy[-/]mm/.test(ph)) return `${ym.y}-${mm}`;
     if (/mm[-/ ]dd[-/ ]yyyy/.test(ph)) return `${mm}/01/${ym.y}`;
     if (/mm[-/ ]yy\b/.test(ph)) return `${mm}/${ym.y.slice(2)}`;
+    if (PICK_DATE.test(ph)) return `${mm}/${dd}/${ym.y}`; // react-datepicker's default format
     return `${mm}/${ym.y}`;
   }
 
