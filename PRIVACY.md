@@ -41,7 +41,7 @@ Your information leaves your device in four ways.
 When you click **Fill this page** or press the shortcut, JobScript puts your information into that form on the job site, the same as if you typed it yourself.
 
 - The job site, and the employer it serves, can read what is in its form fields, even before you submit.
-- Some sites, including Lever, upload and read your resume as soon as it is attached.
+- Some sites, including Lever, Ashby, Workday and iCIMS, upload and read your resume as soon as it is attached. iCIMS reloads the page to do so.
 - For searchable fields such as school or location, JobScript types into the site's search box to find the matching option, so the site's own search receives that text.
 
 JobScript never submits an application for you.
@@ -73,7 +73,7 @@ Claude's answers only appear as suggestions in JobScript's side panel. None are 
 
 - It does not sell, rent or share your data with anyone.
 - It does not use your data for advertising, profiling or any purpose other than filling forms you choose to fill.
-- It does not collect browsing history. It runs only on Greenhouse and Lever application pages, on another page when you explicitly click Fill there, and on sites you chose to teach with Learn mode and gave access to (one site at a time, asked for when you click "Learn this site's steps"). On those sites it only reads the form and shows its panel; it fills nothing until you click.
+- It does not collect browsing history. It runs only on the job sites listed in its manifest (Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters, SuccessFactors, Taleo, Oracle Recruiting, UKG and Handshake), on another page when you explicitly click Fill there, and on sites you chose to teach with Learn mode and gave access to (one site at a time, asked for when you click "Learn this site's steps"). On those sites it only reads the form and shows its panel; it fills nothing until you click.
 - Learn mode and saving answers never record uploads, checkboxes, demographic or reference questions, or sensitive questions (such as Social Security number or date of birth).
 
 ## Your control

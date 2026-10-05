@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "JobScript",
   "version": "0.1.0",
-  "description": "Autofill job applications on Greenhouse and Lever from your saved profile. Never submits for you.",
+  "description": "Autofill job applications on Workday, Greenhouse, Lever, iCIMS and more from your saved profile. Never submits for you.",
   "permissions": [
     "storage",
     "scripting",

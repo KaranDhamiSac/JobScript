@@ -1,16 +1,19 @@
 # JobScript
 
-A Chrome/Firefox extension (Manifest V3) that autofills job applications on Greenhouse and Lever from a saved profile. It never submits; you review and submit yourself.
+A Chrome/Firefox extension (Manifest V3) that autofills job applications from a saved profile on Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters, SuccessFactors, Taleo, Oracle Recruiting, UKG and Handshake, and on LinkedIn Easy Apply if you choose to. It never submits; you review and submit yourself.
 
 ## Features
 
-- **Fill:** click **Fill this page** or press **Alt+Shift+F** on a Greenhouse or Lever application, or any other page. JobScript never submits.
+- **Fill:** click **Fill this page** or press **Alt+Shift+F** on an application page. JobScript never submits.
+- **Supported sites:** Greenhouse, Lever, Ashby, Workday, iCIMS (including forms embedded on company sites), SmartRecruiters, SuccessFactors, Taleo, Oracle Recruiting Cloud, UKG Pro and Ready, and Handshake are built in (`lib/fieldMap.js`, `sites`). Each site entry knows where the form is, what to leave alone (sign-in forms, honeypot fields, a site's own resume parser) and how to read the job title. Research behind each one is in [docs/platforms](docs/platforms/README.md). Any other page works too when you click Fill there.
+- **LinkedIn Easy Apply (opt-in):** JobScript has no built-in access to LinkedIn and fills there only when you press Fill. LinkedIn's User Agreement doesn't allow tools that automate activity on LinkedIn and LinkedIn can restrict accounts, so the panel says so every time.
 - **Side panel:** lists every field by category, marked filled (green), suggested (purple) or needs you (yellow). Click an item to jump to its field.
 - **Confidence:** each match gets a score. High-confidence matches fill automatically, medium ones are suggestions you accept, and low ones stay yellow. Thresholds live in `lib/fieldMap.js` (`confidence`).
 - **Info bank:** import your profile from your resume PDF (parsed locally, reviewed before saving). When you answer a question JobScript left empty, **Save to bank** keeps the answer for next time, both by question wording (matched loosely on other sites) and for that site's exact field. Dates can be saved as a rule ("2 weeks from today", "Next Monday") instead of a fixed date. **Save answers** in the side panel saves a whole step from a review list. Auto-save is available on the options page, off by default.
-- **Custom widgets:** fills Material UI-style dropdowns (`role="combobox"` divs that open a separate option list) and date pickers, both the `mm/dd/yyyy` text box and the newer Month/Day/Year sections.
+- **Custom widgets:** fills Material UI-style dropdowns (`role="combobox"` divs that open a separate option list), date pickers (the `mm/dd/yyyy` text box, Month/Day/Year sections and Workday's split date inputs), Workday's search prompts, Yes/No toggle buttons (Ashby), selects hidden behind a styled stand-in (iCIMS, Select2), and fields inside web components' shadow roots (SmartRecruiters).
+- **Resume first:** the resume is attached before anything else and the form gets a moment to settle, since Lever, Ashby, Workday and iCIMS read an uploaded resume and refill the form from it.
 - **Multi-step forms:** on portals that swap in the next step when you press Continue (Sac State's UEI, for one), the side panel notices the new step and offers **Fill this step**. JobScript never presses Continue, and skips an upload when the page already shows an attached file.
-- **Learn mode:** **Learn this site's steps** in the popup records a multi-step form while you fill it once: each step in order and your answers. Afterwards the panel opens on each step ("Step 2 of 9 (Documents)") and **Fill this step** fills it the way you did, using your current profile for fields that came from it. On sites other than Greenhouse and Lever it asks for access to that one site so it can follow steps that load a new page. Learned sites are listed, and can be forgotten, on the options page.
+- **Learn mode:** **Learn this site's steps** in the popup records a multi-step form while you fill it once: each step in order and your answers. Afterwards the panel opens on each step ("Step 2 of 9 (Documents)") and **Fill this step** fills it the way you did, using your current profile for fields that came from it. On sites it doesn't have built-in access to, it asks for access to that one site so it can follow steps that load a new page. Learned sites are listed, and can be forgotten, on the options page.
 - **Master resume:** your profile holds every job (as bullet lists), project and skill. Import it from your resume PDF with Claude or on your device, and review each parsed entry next to the resume line it came from.
 - **Job description & my resume:** on a job page, open the full job description (title, company and link on top) and copy it in one click to tailor your resume however you like. Upload the resume you made for that job, and JobScript attaches it, fills the rest of the form from your profile, and optionally saves the description and resume to `Downloads/JobScript/<Company>/<Job title>/`.
 - **Tailor & Fill (optional):** on a job page, Claude picks and rewords your most relevant bullets and projects and orders your skills for that posting. JobScript enforces the rules in code (no new skills, tools or metrics; numbers kept exactly) and shows original vs tailored side by side with the posting's missing keywords. On approval it builds a one-page ATS-friendly PDF locally (`FirstName_LastName_Company.pdf`), attaches it and fills the form.
@@ -64,7 +67,7 @@ python3 -m http.server 8765 --bind 127.0.0.1
 
 Open `http://127.0.0.1:8765/dev/mock-form.html`, then run `await __jobscriptFill()` in the DevTools console.
 
-### Real Greenhouse or Lever pages
+### Real job sites
 
 These sites block injected scripts, so tests go through the proxy:
 
@@ -73,7 +76,10 @@ dev/build.sh
 python3 dev/proxy.py 8766 job-boards.greenhouse.io Greenhouse
 python3 dev/proxy.py 8767 jobs.lever.co Lever
 python3 dev/proxy.py 8768 jobs.ashbyhq.com Ashby 'op=Api(JobPosting|OrganizationFromHostedJobsPageName|AutocompleteGeoLocation)$'
+python3 dev/proxy.py 8769 secure6.saashr.com 'UKG Ready'
 ```
+
+SmartRecruiters (behind DataDome) and the signed-in steps of Workday, iCIMS, Taleo, SuccessFactors, Handshake and LinkedIn can't be served this way. The `dev/mock-*.html` forms rebuild their widgets from the research in `docs/platforms/`.
 
 Open a posting through the proxy, for example `http://127.0.0.1:8767/<company>/<posting-id>/apply`. Then run this in the console:
 
