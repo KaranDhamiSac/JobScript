@@ -16,6 +16,25 @@ One doc per job platform, researched on 2026-10-04 from public pages, vendor doc
 | [handshake.md](handshake.md) | Handshake | medium |
 | [linkedin.md](linkedin.md) | LinkedIn Easy Apply | high |
 
+## Implementation status (2026-10-04)
+
+The research below has been built into JobScript. Each site is a `sites` entry in `lib/fieldMap.js`, and the shared widget handling is in `content/autofill.js`. The "JobScript coverage" tables in the Greenhouse, Lever and Ashby docs describe the code as it was before this work.
+
+| Platform | Built-in access | Tested on | Not yet tested |
+|---|---|---|---|
+| Greenhouse, Lever | yes | live postings via the test proxy | email security-code step |
+| Ashby | yes | live posting via the proxy (Yes/No buttons, survey checkboxes, location search) | date questions, uploads |
+| Workday | yes | `dev/mock-workday-form.html` (listboxes, search prompts, split dates, Add entries, honeypot) | any signed-in step on a real tenant |
+| iCIMS | yes | `dev/mock-icims-form.html` (stand-in dropdowns, Country → State, split dates) | the real profile page, type-ahead School/Major lists |
+| SmartRecruiters | yes | read-only probes on the live form, plus `dev/mock-shadow-form.html` | a full fill on the live page (DataDome blocks the proxy) |
+| SuccessFactors | yes | n/a | the signed-in form and its JUIC picklists |
+| Taleo, Oracle Recruiting | yes | titles and descriptions on live postings | application pages (sign-in or email code needed) |
+| UKG Pro / Ready | yes | UKG Ready's guest dialog via the proxy | UKG Pro's signed-in form |
+| Handshake | yes | n/a | the apply dialog (student login needed) |
+| LinkedIn Easy Apply | **no** (runs only when you press Fill) | n/a | everything; the panel shows a terms warning |
+
+Not built: Greenhouse's question API, Lever's `baseTemplate` JSON, Workday's CXS job API, Oracle's public apply-flow JSON, and detecting Greenhouse's email security-code step.
+
 ## At a glance
 
 | Platform | Rendering | Steps | Account to apply | Frame / shadow | Stable anchor | Public form schema | Bot protection |
