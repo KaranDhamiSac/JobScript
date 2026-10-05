@@ -123,6 +123,7 @@
       }
     };
     visit(root);
+    if (root.shadowRoot && !OWN_HOSTS.test(root.tagName)) visit(root.shadowRoot); // LinkedIn's #interop-outlet
     return out;
   }
 
@@ -403,7 +404,8 @@
       nameRaw: el.getAttribute('name') || '',
       // iCIMS prefixes every name with a family ("CandProfileFields.Degree"); "fields" would
       // trip rules that exclude field-of-study questions.
-      attrs: norm([el.name, el.id].filter(Boolean).join(' ').replace(/(Person|Cand|Portal)ProfileFields\./g, '')),
+      // Taleo's generated ids carry the field after dv_cs_ ("...-frm-dv_cs_experience_Employer").
+      attrs: norm([el.name, el.id].filter(Boolean).join(' ').replace(/(Person|Cand|Portal)ProfileFields\./g, '').replace(/\S*dv_cs_/g, '')),
       autocomplete: ac === 'on' || ac === 'off' ? '' : ac,
       context: f.kind === 'file' ? norm(ancestorContext(el)) : '',
     };
@@ -2149,9 +2151,9 @@
     }
     if (session.stepIndex >= 0) {
       return `Step ${session.stepIndex + 1} of ${session.steps.length} you taught JobScript${title}. ` +
-        'Press “Fill this step” to fill it the way you did. ' + DEFAULT_NOTE;
+        'Press “Fill this step” to fill it the way you did. ' + siteWarning() + DEFAULT_NOTE;
     }
-    return `New step: ${count} field${count === 1 ? '' : 's'}. Press “Fill this step” when you’re ready. ` + DEFAULT_NOTE;
+    return `New step: ${count} field${count === 1 ? '' : 's'}. Press “Fill this step” when you’re ready. ` + siteWarning() + DEFAULT_NOTE;
   }
 
   // ---------------------------------------------------------------------------
@@ -2338,6 +2340,12 @@
     return questions.length ? questions : null;
   }
 
+  // A site's `warning` (LinkedIn's terms), shown at the top of the panel.
+  function siteWarning() {
+    const site = currentSite();
+    return site && site.warning ? site.warning + ' ' : '';
+  }
+
   function currentSite() {
     return FM.sites.find((s) => s.hosts.some((re) => re.test(location.hostname))) || null;
   }
@@ -2387,16 +2395,18 @@
     const t = clean(document.title);
     let m = t.match(/^Job Application for (.+?) at (.+)$/i);
     if (m) return { title: m[1], company: m[2] };
+    // A titlePattern may give only the title (Taleo: "Job Description - Title (123)").
     const tp = currentSite() && currentSite().titlePattern;
     m = tp && t.match(tp.re);
-    if (m) return { title: clean(m[tp.title]), company: clean(m[tp.company]) };
+    const fromTitle = m ? { title: clean(m[tp.title]), company: tp.company ? clean(m[tp.company]) : '' } : null;
+    if (fromTitle && fromTitle.company) return fromTitle;
     const ld = jsonLdPosting(document);
-    if (ld && ld.title && ld.company) return { title: ld.title, company: ld.company };
+    if (ld && ld.title && ld.company) return { title: fromTitle ? fromTitle.title : ld.title, company: ld.company };
     const og = document.querySelector('meta[property="og:site_name"]');
     const h1 = document.querySelector('h1, h2');
     const slug = decodeURIComponent(location.pathname.split('/')[1] || '');
     return {
-      title: h1 ? clean(h1.textContent) : t,
+      title: fromTitle ? fromTitle.title : h1 ? clean(h1.textContent) : t,
       company: (og && clean(og.content)) || (slug ? slug.charAt(0).toUpperCase() + slug.slice(1) : location.hostname),
     };
   }
@@ -2524,7 +2534,7 @@
         learning: saved.learning,
         steps: saved.steps,
         stepIndex: -1,
-        note: tailored && !step ? `Attached your tailored resume (${tailored.name}). ` + DEFAULT_NOTE : DEFAULT_NOTE,
+        note: (tailored && !step ? `Attached your tailored resume (${tailored.name}). ` : '') + siteWarning() + DEFAULT_NOTE,
         forceResume: !!tailored && !step,
         tailoredId,
         stepPending: false,
@@ -2561,7 +2571,7 @@
         session.note = stepNote(s.found);
       } else if (session.stepIndex >= 0) {
         const title = session.stepTitle ? ` (${session.stepTitle})` : '';
-        session.note = `Filled step ${session.stepIndex + 1} of ${session.steps.length}${title} the way you did. ` + DEFAULT_NOTE;
+        session.note = `Filled step ${session.stepIndex + 1} of ${session.steps.length}${title} the way you did. ` + siteWarning() + DEFAULT_NOTE;
       }
       renderPanel();
       aiQuestions = await prepareAiQuestions();
