@@ -254,6 +254,16 @@
     return box ? [...box.querySelectorAll('[data-automation-id="selectedItem"]')] : [];
   }
 
+  // Native selects hidden behind a styled stand-in (iCIMS's icimsDropdown, Select2, Chosen): the
+  // stand-in is what you see, the select is what the form sends. Returns the stand-in, or null.
+  function selectProxy(el) {
+    if (isVisible(el)) return null;
+    const icims = el.id && byIdNear(el, el.id + '_icimsDropdown');
+    if (icims) return icims;
+    const next = el.nextElementSibling;
+    return next && typeof next.className === 'string' && /\b(select2|chosen-container)\b/.test(next.className) ? next : null;
+  }
+
   // Yes/No questions built from two toggle buttons (Ashby), often over a hidden checkbox that
   // only mirrors the buttons. Returns the [yes, no] buttons, or null if el isn't such a pair.
   function yesNoButtons(el) {
@@ -390,7 +400,10 @@
       aria: isGroup ? '' : norm(el.getAttribute('aria-label')),
       placeholder: norm(el.getAttribute('placeholder')),
       placeholderRaw: el.getAttribute('placeholder') || '',
-      attrs: norm([el.name, el.id].filter(Boolean).join(' ')),
+      nameRaw: el.getAttribute('name') || '',
+      // iCIMS prefixes every name with a family ("CandProfileFields.Degree"); "fields" would
+      // trip rules that exclude field-of-study questions.
+      attrs: norm([el.name, el.id].filter(Boolean).join(' ').replace(/(Person|Cand|Portal)ProfileFields\./g, '')),
       autocomplete: ac === 'on' || ac === 'off' ? '' : ac,
       context: f.kind === 'file' ? norm(ancestorContext(el)) : '',
     };
@@ -473,6 +486,7 @@
       else kind = 'text';
       const f = { el, kind };
       if (kind === 'radio') f.groupInputs = [el];
+      if (kind === 'select') f.proxy = selectProxy(el);
       out.push(f);
     }
 
@@ -485,7 +499,7 @@
 
     return out.filter((f) => {
       if (['text', 'textarea', 'select', 'listbox', 'prompt', 'date', 'month', 'datetext', 'datesections'].includes(f.kind)) {
-        return isReallyVisible(f.el);
+        return isReallyVisible(f.proxy || f.el);
       }
       return (f.groupInputs || [f.el]).some((e) => isVisible(e) || isVisible(e.closest('label') || e.parentElement));
     });
@@ -614,6 +628,9 @@
   }
 
   function detectDatePart(d) {
+    // iCIMS splits dates into <name>_Month, <name>_Date (the day) and <name>_Year.
+    const icims = /_(Month|Date|Year)$/.exec(d.nameRaw);
+    if (icims) return { Month: 'month', Date: 'day', Year: 'year' }[icims[1]];
     const text = [d.label, d.attrs, d.placeholder].join(' ');
     const parts = Object.entries(FM.dateParts).filter(([, re]) => re.test(text));
     return parts.length === 1 ? parts[0][0] : null;
@@ -1058,6 +1075,8 @@
     }
     for (const re of FM.valueAliases[value] || []) tests.push([(o) => re.test(o.text), true]);
     tests.push([(o) => o.nt === target || o.nv === target, true]);
+    // Day and month numbers: "01" is the option "1".
+    if (/^\d{1,2}$/.test(target)) tests.push([(o) => /^\d{1,2}$/.test(o.nt) && Number(o.nt) === Number(target), true]);
     if (hint.key === 'degree') {
       const d = pickDegree(cands, value);
       tests.push([(o) => o.i === d.i, d.strong]);
@@ -1122,6 +1141,14 @@
     const idx = pick.index;
     if (idx < 0) return false;
     if (!pick.strong && !allowWeak) return { weakPick: clean(options[idx].text) };
+    // iCIMS's stand-in list: clicking its item also updates the shown text and dependent fields
+    // (Country -> State), which setting the select alone doesn't.
+    const list = el.id && byIdNear(el, el.id + '_dropdown-results');
+    const item = list && [...list.querySelectorAll('li[title]')].find((li) => clean(li.title) === clean(options[idx].text));
+    if (item) {
+      item.click();
+      if (el.selectedIndex === idx) return true;
+    }
     el.selectedIndex = idx;
     fireEvents(el);
     return true;
@@ -1503,6 +1530,7 @@
   }
 
   function highlightElement(f) {
+    if (f.proxy) return f.proxy;
     if (f.groupInputs) {
       const c = commonAncestor(f.groupInputs);
       return f.groupInputs.length === 1 ? f.groupInputs[0].closest('label') || c : c;
@@ -1946,14 +1974,16 @@
 
   // Attach the resume before filling anything else: Lever, Ashby, iCIMS and Workday parse an
   // uploaded resume and refill or redraw the form, which would overwrite answers typed before it.
-  // Returns the elements it handled.
+  // Returns { handled: the elements it processed, attached: whether it attached a file }.
   async function attachResumeFirst(root, profile, resume) {
     const f = analyze(root, profile).find((x) => x.kind === 'file' && x.match && x.match.key === 'resume' && x.match.tier === 'high');
-    if (!f) return new Set();
+    if (!f) return { handled: new Set(), attached: false };
     handled.add(f.el);
     registry.set(f.id, f);
-    if ((await processField(f, resume)) === 'filled') await waitForQuiet(document.body, 700, 6000);
-    return new Set([f.el]);
+    const attached = (await processField(f, resume)) === 'filled';
+    // A site that reloads the page to read the resume (iCIMS) is gone by now anyway.
+    if (attached && !(currentSite() && currentSite().resumeReloads)) await waitForQuiet(document.body, 700, 6000);
+    return { handled: new Set([f.el]), attached };
   }
 
   function summary() {
@@ -2503,15 +2533,21 @@
       };
       Object.assign(session, (({ title, company }) => ({ jobTitle: title, company }))(titleAndCompany()));
       const first = await attachResumeFirst(root, profile, resume);
-      if (first.size) root = findRoot().root; // a parsed resume may have redrawn the form
+      if (first.attached && currentSite() && currentSite().resumeReloads) {
+        // iCIMS sends the page off to read the resume as soon as it's attached.
+        session.note = 'Attached your resume. The site reloads the page to read it; press Fill this page again when it’s back.';
+        renderPanel();
+        return summary();
+      }
+      if (first.attached) root = findRoot().root; // a parsed resume may have redrawn the form
       await ensureEntries(root, profile);
 
       // Start watching before the pass, so fields revealed by our own answers
       // (e.g. a follow-up question) are caught too. Late passes wait until this one finishes.
       watchForLateFields(profile, resume);
 
-      const s = await runPass(root, profile, resume, false, first);
-      s.found += first.size;
+      const s = await runPass(root, profile, resume, false, first.handled);
+      s.found += first.handled.size;
       if (!s.found) {
         if (stopWatching) stopWatching();
         if (stepWatcher) stepWatcher();

@@ -20,7 +20,8 @@
     "https://jobs.ashbyhq.com/*",
     "https://jobs.smartrecruiters.com/*",
     "https://*.myworkdayjobs.com/*",
-    "https://*.myworkdaysite.com/*"
+    "https://*.myworkdaysite.com/*",
+    "https://*.icims.com/*"
   ],
   "optional_host_permissions": [
     "https://api.anthropic.com/*",
@@ -62,7 +63,8 @@
         "https://jobs.ashbyhq.com/*",
         "https://jobs.smartrecruiters.com/*",
         "https://*.myworkdayjobs.com/*",
-        "https://*.myworkdaysite.com/*"
+        "https://*.myworkdaysite.com/*",
+        "https://*.icims.com/*"
       ],
       "js": [
         "lib/storage.js",
