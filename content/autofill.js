@@ -126,13 +126,20 @@
     return out;
   }
 
+  // The shadow host n sits under, or null. (Checked with instanceof: a detached <a> is its own
+  // root node, and its .host is a URL part.)
+  function shadowHost(n) {
+    const root = n.getRootNode();
+    return root instanceof ShadowRoot ? root.host : null;
+  }
+
   // The parent element, stepping out of a shadow root to its host.
   function parentOf(n) {
-    return n.parentElement || (n.parentNode && n.parentNode.host) || null;
+    return n.parentElement || (n.parentNode instanceof ShadowRoot ? n.parentNode.host : null);
   }
 
   function closestDeep(el, sel) {
-    for (let n = el; n; n = n.getRootNode().host || null) {
+    for (let n = el; n; n = shadowHost(n)) {
       const hit = n.closest(sel);
       if (hit) return hit;
     }
@@ -142,7 +149,7 @@
   // getElementById in el's own tree (its shadow root, or the document), then in the trees
   // around it: SmartRecruiters' input points at a menu in its outer component.
   function byIdNear(el, id) {
-    for (let root = el.getRootNode(); root; root = root.host ? root.host.getRootNode() : null) {
+    for (let root = el.getRootNode(); root; root = root instanceof ShadowRoot ? root.host.getRootNode() : null) {
       const hit = root.getElementById && root.getElementById(id);
       if (hit) return hit;
     }
@@ -153,7 +160,7 @@
   // root (a slot) have no text of their own, so step out to the host that has it.
   function optionWithText(o) {
     let n = o;
-    while (!clean(n.textContent) && n.getRootNode().host) n = n.getRootNode().host;
+    while (!clean(n.textContent) && shadowHost(n)) n = shadowHost(n);
     return n;
   }
 
@@ -161,14 +168,14 @@
   // (JobScript's highlights) can reach.
   function outerHost(el) {
     let n = el;
-    while (n.getRootNode().host) n = n.getRootNode().host;
+    while (shadowHost(n)) n = shadowHost(n);
     return n;
   }
 
   // The hosts around a node, outermost first, ending with the node itself.
   function hostPath(n) {
     const path = [n];
-    for (let r = n.getRootNode(); r.host; r = r.host.getRootNode()) path.unshift(r.host);
+    for (let h = shadowHost(n); h; h = shadowHost(h)) path.unshift(h);
     return path;
   }
 
@@ -319,7 +326,7 @@
       if (wrap) parts.push(textWithoutControls(wrap));
     }
     // Web components often carry the label on a host around the input (spl-phone-field).
-    for (let n = el.getRootNode().host; n && !clean(parts.join('')); n = n.getRootNode().host) {
+    for (let n = shadowHost(el); n && !clean(parts.join('')); n = shadowHost(n)) {
       if (n.getAttribute('label')) parts.push(n.getAttribute('label'));
     }
     if (!parts.length || !clean(parts.join(''))) parts.push(nearbyText(el));
