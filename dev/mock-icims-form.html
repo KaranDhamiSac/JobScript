@@ -1,0 +1,124 @@
+<!doctype html>
+<!--
+  Test-only copy of iCIMS's candidate profile page, built from docs/platforms/icims.md (the real
+  page needs a candidate account):
+  - label cells next to control cells, with ids and names like PersonProfileFields.FirstName;
+  - native selects hidden behind iCIMS's stand-in dropdown (a.dropdown-select plus a list of
+    li[title] items); clicking an item updates the select, the shown text and, for Country,
+    the State list;
+  - education entries pre-rendered as hidden -1_/-2_ groups behind an "Add More (Education)" link;
+  - a graduation date split into _Month and _Date selects and a _Year text box;
+  - the account sign-in name and password, which must stay empty.
+  Serve the repo root (python3 -m http.server 8765 --bind 127.0.0.1), open
+  /dev/mock-icims-form.html, then run await __jobscriptFill() and check window.__committed.
+  Uses the fake profile in dev/stub.js.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iCIMS mock form</title>
+<link rel="stylesheet" href="../content/autofill.css">
+<script src="stub.js"></script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/fieldMap.js"></script>
+<script>FieldMap.sites.find((s) => s.name === 'iCIMS').hosts.push(/^127\.0\.0\.1$/); // use the site's settings here</script>
+<script src="../lib/dateRules.js"></script>
+<script src="../content/panel.js"></script>
+<script src="../content/bank.js"></script>
+<script src="../content/autofill.js"></script>
+<style>
+  body { font: 15px system-ui, sans-serif; max-width: 680px; margin: 24px auto; padding: 0 16px; }
+  .iCIMS_TableRow { display: flex; gap: 12px; margin: 8px 0; }
+  .iCIMS_InfoField { width: 200px; }
+  .iCIMS_NoDisplay { display: none; }
+  select.icims-hidden { display: none; }
+  .dropdown-results { list-style: none; margin: 0; padding: 0; border: 1px solid #aaa; display: none; }
+  .dropdown-results.open { display: block; }
+</style>
+</head>
+<body>
+<div class="iCIMS_MainWrapper">
+<form id="profileForm">
+  <h1 class="iCIMS_Header">Candidate Profile</h1>
+  <div id="rows"></div>
+  <div class="iCIMS_CollectionButtonsRow">
+    <a id="CandProfileFields.EducationButton_-1" role="button" href="#">Add More (Education)</a>
+  </div>
+</form>
+</div>
+<script>
+  window.__committed = {};
+  const rows = document.getElementById('rows');
+
+  function row(name, label, control, hidden) {
+    const div = document.createElement('div');
+    div.className = 'iCIMS_TableRow iCIMS_FieldRow_' + name + (hidden ? ' iCIMS_NoDisplay' : '');
+    div.innerHTML = `<div class="iCIMS_InfoField"><label id="label_${name}" for="${name}">${label}</label></div><div class="iCIMS_InfoData">${control}</div>`;
+    return div;
+  }
+  const text = (name) => `<input type="text" id="${name}" name="${name}" onchange="window.__committed[this.name]=this.value">`;
+  const select = (name, options) =>
+    `<select class="icims-hidden" id="${name}" name="${name}"><option value="-999">— Make a Selection —</option>${options.map((o) => `<option>${o}</option>`).join('')}</select>` +
+    `<a class="dropdown-select" id="${name}_icimsDropdown" href="#">— Make a Selection —</a>` +
+    `<ul class="dropdown-results" id="${name}_dropdown-results" role="listbox">${options.map((o, i) => `<li class="dropdown-result result-selectable" role="option" dropdown-index="${i}" title="${o}">${o}</li>`).join('')}</ul>`;
+
+  // iCIMS's stand-in dropdown: its list is clicked, not the hidden select.
+  function wireDropdown(name, onPick) {
+    const sel = document.getElementById(name);
+    const shown = document.getElementById(name + '_icimsDropdown');
+    const list = document.getElementById(name + '_dropdown-results');
+    shown.addEventListener('click', (e) => { e.preventDefault(); list.classList.toggle('open'); });
+    list.addEventListener('click', (e) => {
+      const li = e.target.closest('li');
+      if (!li) return;
+      sel.selectedIndex = Number(li.getAttribute('dropdown-index')) + 1;
+      shown.textContent = li.title;
+      list.classList.remove('open');
+      window.__committed[name] = li.title;
+      if (onPick) onPick(li.title);
+    });
+  }
+
+  const STATES = { 'United States': ['California', 'Nevada', 'Oregon'], Canada: ['Ontario', 'Quebec'] };
+  rows.append(
+    row('PersonProfileFields.Login', 'Login<span class="Field_Required">*</span>', text('PersonProfileFields.Login')),
+    row('PersonProfileFields.Password', 'Password', '<input type="password" id="PersonProfileFields.Password" name="PersonProfileFields.Password">'),
+    row('PersonProfileFields.FirstName', 'First Name', text('PersonProfileFields.FirstName')),
+    row('PersonProfileFields.LastName', 'Last Name', text('PersonProfileFields.LastName')),
+    row('PersonProfileFields.Email', 'Email', text('PersonProfileFields.Email')),
+    row('-1_PersonProfileFields.AddressCity', 'City', text('-1_PersonProfileFields.AddressCity')),
+    row('-1_PersonProfileFields.AddressCountry', 'Country', select('-1_PersonProfileFields.AddressCountry', Object.keys(STATES))),
+    row('-1_PersonProfileFields.AddressState', 'State/Province', select('-1_PersonProfileFields.AddressState', [])),
+  );
+  wireDropdown('-1_PersonProfileFields.AddressCountry', (country) => {
+    // Country fills in the State list, as iCIMS's dependent dropdowns do.
+    const state = document.querySelector('.iCIMS_FieldRow_-1_PersonProfileFields\\.AddressState .iCIMS_InfoData');
+    state.innerHTML = select('-1_PersonProfileFields.AddressState', STATES[country]);
+    wireDropdown('-1_PersonProfileFields.AddressState');
+  });
+
+  for (const n of [1, 2]) {
+    const p = `-${n}_CandProfileFields.`;
+    const hide = n > 1;
+    const head = document.createElement('h2');
+    head.textContent = 'Education';
+    head.className = hide ? 'iCIMS_NoDisplay edu-' + n : 'edu-' + n;
+    rows.append(head,
+      row(p + 'School', 'School', text(p + 'School'), hide),
+      row(p + 'Degree', 'Degree', select(p + 'Degree', ["Associate's", "Bachelor's", "Master's"]), hide),
+      row(p + 'GraduationDate_Month', 'Graduation Date',
+        `<select id="${p}GraduationDate_Month" name="${p}GraduationDate_Month" onchange="window.__committed[this.name]=this.value"><option value=""></option>` +
+        ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((m, i) => `<option value="${i + 1}">${m}</option>`).join('') + '</select>' +
+        `<select id="${p}GraduationDate_Date" name="${p}GraduationDate_Date" onchange="window.__committed[this.name]=this.value"><option value=""></option>` +
+        Array.from({ length: 31 }, (_, i) => `<option>${i + 1}</option>`).join('') + '</select>' +
+        `<input type="text" id="${p}GraduationDate_Year" name="${p}GraduationDate_Year" onchange="window.__committed[this.name]=this.value">`, hide),
+    );
+    wireDropdown(p + 'Degree');
+  }
+  document.getElementById('CandProfileFields.EducationButton_-1').addEventListener('click', (e) => {
+    e.preventDefault();
+    document.querySelectorAll('[class*="_CandProfileFields."].iCIMS_NoDisplay, h2.iCIMS_NoDisplay').forEach((n) => n.classList.remove('iCIMS_NoDisplay'));
+  });
+</script>
+</body>
+</html>
