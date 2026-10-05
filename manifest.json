@@ -25,7 +25,9 @@
     "https://*.successfactors.com/*",
     "https://*.successfactors.eu/*",
     "https://*.sapsf.com/*",
-    "https://*.sapsf.eu/*"
+    "https://*.sapsf.eu/*",
+    "https://*.taleo.net/*",
+    "https://*.oraclecloud.com/*"
   ],
   "optional_host_permissions": [
     "https://api.anthropic.com/*",
@@ -72,7 +74,9 @@
         "https://*.successfactors.com/*",
         "https://*.successfactors.eu/*",
         "https://*.sapsf.com/*",
-        "https://*.sapsf.eu/*"
+        "https://*.sapsf.eu/*",
+        "https://*.taleo.net/*",
+        "https://*.oraclecloud.com/*"
       ],
       "js": [
         "lib/storage.js",
