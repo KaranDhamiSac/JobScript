@@ -1635,7 +1635,11 @@
       .filter((f) => f.el.isConnected)
       .sort((a, b) => (inPageOrder(a.el, b.el) ? -1 : 1));
     const hasSuggestions = fields.some((f) => f.status === 'suggested' && !f.draft && f.accept);
-    const actions = [{ label: 'Job description', onClick: () => chrome.runtime.sendMessage({ type: 'job-start' }) }];
+    const actions = [];
+    // The resume question comes first: pick before you go on (see askForJobResume).
+    const rc = session.resumeChoice;
+    if (rc && rc.f.el.isConnected && isEmpty(rc.f)) actions.push(...rc.actions);
+    else actions.push({ label: 'Job description', onClick: () => openJobPage('job') });
     if (session.stepPending) actions.push({ label: 'Fill this step', primary: true, onClick: fillStep });
     if (session.learning) {
       actions.push({ label: 'Finish learning', onClick: finishLearning });
@@ -1899,20 +1903,38 @@
   // description to tailor from and attaches what you upload there; Tailor & Fill does it with
   // Claude), or to send the master resume after all.
   function askForJobResume(f, resume) {
-    const actions = [{ label: 'Make one for this job', primary: true, onClick: () => chrome.runtime.sendMessage({ type: 'job-start' }) }];
-    if (session.aiEnabled) actions.push({ label: 'Tailor with Claude', onClick: () => chrome.runtime.sendMessage({ type: 'tailor-start' }) });
+    const actions = [{ label: 'Make a resume for this job', primary: true, onClick: () => openJobPage('job') }];
+    if (session.aiEnabled) actions.push({ label: 'Tailor with Claude', onClick: () => openJobPage('tailor') });
     actions.push({
       label: 'Use master resume',
       onClick: () => {
         const ok = attachFile(f.el, resume);
         setStatus(f, ok ? 'filled' : 'needs', ok ? preview(currentValueText(f)) : 'Could not attach your resume');
+        session.note = session.note.replace(RESUME_ASK, '');
         renderPanel();
       },
     });
     f.accept = null;
+    session.resumeChoice = { f, actions };
     setStatus(f, 'suggested', 'Attach a resume made for this job', { actions });
-    const ask = 'This application asks for a resume. Make one for this job from the job description, or use your master resume. ';
-    if (!session.note.includes(ask)) session.note = ask + session.note;
+    if (!session.note.includes(RESUME_ASK)) session.note = RESUME_ASK + session.note;
+  }
+
+  const RESUME_ASK = 'This application asks for a resume. Make one for this job from its description (the copy button is on the next page), or use your master resume. ';
+
+  // Opens the job description page ('job') or Tailor & Fill ('tailor') for this tab, and says why
+  // in the panel if it can't.
+  async function openJobPage(page) {
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: page === 'tailor' ? 'tailor-start' : 'job-start' });
+    } catch (e) {
+      // After JobScript is updated or reloaded, scripts already on open pages lose their link to it.
+      res = { ok: false, error: /context invalidated/i.test(String(e && e.message)) ? 'JobScript was updated since this page loaded. Refresh the page and press Fill again.' : String(e && e.message) };
+    }
+    if (res && res.ok) return;
+    session.note = 'Couldn’t open the job description: ' + ((res && res.error) || 'no answer from JobScript.') + ' ' + session.note;
+    renderPanel();
   }
 
   // Fill one field and record its status.
