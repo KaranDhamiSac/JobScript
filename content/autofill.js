@@ -1670,7 +1670,7 @@
     const site = FM.sites.find((s) => s.hosts.some((re) => re.test(location.hostname)));
     let best = null;
     if (site) {
-      for (const sel of site.formSelectors) {
+      for (const sel of site.formSelectors || []) {
         for (const node of document.querySelectorAll(sel)) {
           const count = deepQueryAll(node, 'input, select, textarea').length;
           if (count && (!best || count > best.count)) best = { node, count };
@@ -2403,15 +2403,22 @@
     let m = t.match(/^Job Application for (.+?) at (.+)$/i);
     if (m) return { title: m[1], company: m[2] };
     // A titlePattern may give only the title (Taleo: "Job Description - Title (123)").
-    const tp = currentSite() && currentSite().titlePattern;
+    const site = currentSite();
+    const tp = site && site.titlePattern;
     m = tp && t.match(tp.re);
-    const fromTitle = m ? { title: clean(m[tp.title]), company: tp.company ? clean(m[tp.company]) : '' } : null;
+    let fromTitle = m ? { title: clean(m[tp.title]), company: tp.company ? clean(m[tp.company]) : '' } : null;
+    // Or the element showing the job title (`titleSelector`), when the page title doesn't have it.
+    const titleEl = !fromTitle && site && site.titleSelector && document.querySelector(site.titleSelector);
+    if (titleEl && clean(titleEl.textContent)) fromTitle = { title: clean(titleEl.textContent), company: '' };
     if (fromTitle && fromTitle.company) return fromTitle;
     const ld = jsonLdPosting(document);
     if (ld && ld.title && ld.company) return { title: fromTitle ? fromTitle.title : ld.title, company: ld.company };
     const og = document.querySelector('meta[property="og:site_name"]');
     const h1 = document.querySelector('h1, h2');
-    const slug = decodeURIComponent(location.pathname.split('/')[1] || '');
+    // The first path segment often names the company (jobs.lever.co/<company>/...), but not
+    // when it's a short route like UKG Ready's /ta/.
+    let slug = decodeURIComponent(location.pathname.split('/')[1] || '');
+    if (slug.length < 3) slug = '';
     return {
       title: fromTitle ? fromTitle.title : h1 ? clean(h1.textContent) : t,
       company: (og && clean(og.content)) || (slug ? slug.charAt(0).toUpperCase() + slug.slice(1) : location.hostname),
