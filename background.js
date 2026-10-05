@@ -38,8 +38,8 @@ async function callWithInjection(tabId, fnName, arg) {
 async function fillTab(tabId, opts) {
   let frames;
   try {
-    // Greenhouse and Lever frames already have the content script (including Greenhouse
-    // forms embedded in an iframe on a company's careers page).
+    // Frames on the job sites in the manifest already have the content script (including
+    // Greenhouse and iCIMS forms embedded in an iframe on a company's careers page).
     frames = await callWithInjection(tabId, '__jobscriptFill', opts || null);
   } catch (err) {
     return { ok: false, error: 'JobScript cannot run on this page.' };
@@ -213,9 +213,18 @@ function siteScriptId(origin) {
   return 'site:' + origin;
 }
 
-// Greenhouse and Lever already get the content script from the manifest.
+// Whether a manifest match pattern such as "https://*.icims.com/*" covers an origin.
+function patternCovers(pattern, origin) {
+  const m = /^(\w+):\/\/(\*\.)?([^/*]+)\/\*$/.exec(pattern);
+  if (!m) return false;
+  const u = new URL(origin);
+  if (u.protocol !== m[1] + ':') return false;
+  return m[2] ? u.hostname === m[3] || u.hostname.endsWith('.' + m[3]) : u.hostname === m[3];
+}
+
+// The job sites in the manifest (Greenhouse, Lever, Workday, ...) already get the content script.
 function hasBuiltInScript(origin) {
-  return chrome.runtime.getManifest().content_scripts.some((cs) => cs.matches.includes(origin + '/*'));
+  return chrome.runtime.getManifest().content_scripts.some((cs) => cs.matches.some((p) => patternCovers(p, origin)));
 }
 
 async function registerSiteScript(origin) {

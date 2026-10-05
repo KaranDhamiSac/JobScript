@@ -653,7 +653,7 @@ async function forgetSite(origin) {
   try {
     await chrome.permissions.remove({ origins: [origin + '/*'] });
   } catch (e) {
-    /* Greenhouse and Lever access is built in */
+    /* access to the job sites in the manifest is built in */
   }
 }
 

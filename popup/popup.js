@@ -102,7 +102,7 @@ document.getElementById('tailor').addEventListener('click', async () => {
 
 // ---------------------------------------------------------------------------
 // Learn mode: you fill a multi-step form once and JobScript records each step (see
-// content/autofill.js). On sites other than Greenhouse and Lever it asks to run on that one site,
+// content/autofill.js). On sites JobScript doesn't have built-in access to, it asks to run on that one site,
 // so the side panel can follow steps that load a new page.
 
 const learnBtn = document.getElementById('learn');
