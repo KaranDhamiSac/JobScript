@@ -1193,7 +1193,14 @@
       const c = comboContainer(el);
       if (c) opts = [...c.querySelectorAll('[role="option"], [class*="__option"]')];
     }
-    return opts.filter(isVisible);
+    opts = opts.filter(isVisible);
+    // A list that isn't linked to the input (SuccessFactors' picklists open one in a popup):
+    // use it only when it's the one list open on the page.
+    if (!opts.length && el.getAttribute('aria-expanded') === 'true') {
+      const open = [...document.querySelectorAll('[role="listbox"]')].filter((l) => isVisible(l) && !l.contains(el));
+      if (open.length === 1) opts = [...open[0].querySelectorAll('[role="option"]')].filter(isVisible);
+    }
+    return opts;
   }
 
   function keyEvent(el, key, keyCode) {
