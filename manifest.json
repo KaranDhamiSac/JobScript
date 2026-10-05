@@ -27,7 +27,10 @@
     "https://*.sapsf.com/*",
     "https://*.sapsf.eu/*",
     "https://*.taleo.net/*",
-    "https://*.oraclecloud.com/*"
+    "https://*.oraclecloud.com/*",
+    "https://*.ultipro.com/*",
+    "https://*.ultipro.ca/*",
+    "https://*.saashr.com/*"
   ],
   "optional_host_permissions": [
     "https://api.anthropic.com/*",
@@ -76,7 +79,10 @@
         "https://*.sapsf.com/*",
         "https://*.sapsf.eu/*",
         "https://*.taleo.net/*",
-        "https://*.oraclecloud.com/*"
+        "https://*.oraclecloud.com/*",
+        "https://*.ultipro.com/*",
+        "https://*.ultipro.ca/*",
+        "https://*.saashr.com/*"
       ],
       "js": [
         "lib/storage.js",
