@@ -1639,19 +1639,20 @@
     // The resume question comes first: pick before you go on (see askForJobResume).
     const rc = session.resumeChoice;
     if (rc && rc.f.el.isConnected && isEmpty(rc.f)) actions.push(...rc.actions);
-    else actions.push({ label: 'Job description', onClick: () => openJobPage('job') });
-    if (session.stepPending) actions.push({ label: 'Fill this step', primary: true, onClick: fillStep });
+    if (session.stepPending) actions.push({ label: 'Fill this step', ariaLabel: 'Fill this step of the form', primary: true, onClick: fillStep });
+    else actions.push({ label: 'Fill this page', ariaLabel: 'Fill this page again', onClick: fillFromPanel });
     if (session.learning) {
-      actions.push({ label: 'Finish learning', onClick: finishLearning });
+      actions.push({ label: 'Finish learning', ariaLabel: 'Finish learning this site', onClick: finishLearning });
     } else {
       if (session.lastStep && session.lastStep.length) {
         actions.push({ label: `Save last step (${session.lastStep.length})`, onClick: () => openReview(session.lastStep, 'Save your answers from the last step') });
       }
-      actions.push({ label: 'Save answers', onClick: () => openReview(currentAnswers(), 'Save your answers on this step') });
+      actions.push({ label: 'Save answers', ariaLabel: 'Save your answers on this step', onClick: () => openReview(currentAnswers(), 'Save your answers on this step') });
     }
-    if (hasSuggestions) actions.push({ label: 'Accept all', primary: true, onClick: acceptAllSuggestions });
+    if (hasSuggestions) actions.push({ label: 'Accept all', ariaLabel: 'Accept all suggestions', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
       note: session.note,
+      footerActions: footerActions(),
       review: session.review,
       toolbarActions: actions,
       onSelect: focusField,
@@ -1666,6 +1667,75 @@
         actions: f.actions,
       })),
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // The panel's own buttons for everything the popup does, so you (or a browser agent, which
+  // can click the page but not the popup) never need the toolbar icon.
+
+  let idleNote = ''; // shown in the panel before any fill, e.g. why a fill didn't work
+
+  function footerActions() {
+    return [
+      { label: 'Job description', ariaLabel: 'Open the job description and upload a resume made for this job', onClick: () => openJobPage('job') },
+      { label: 'Tailor & Fill', ariaLabel: 'Tailor your resume to this job with Claude, then fill', onClick: () => openJobPage('tailor') },
+      { label: 'Open tracker', ariaLabel: 'Open the applications tracker', onClick: openTracker },
+    ];
+  }
+
+  // The panel before JobScript has filled anything on this page.
+  function renderIdle() {
+    globalThis.JobScriptPanel.render({
+      note: idleNote || 'Nothing filled on this page yet. ' + siteWarning() + DEFAULT_NOTE,
+      summaryText: '',
+      toolbarActions: [{ label: 'Fill this page', ariaLabel: 'Fill this page', primary: true, onClick: fillFromPanel }],
+      footerActions: footerActions(),
+      onSelect: () => {},
+      items: [],
+    });
+  }
+
+  function openPanel() {
+    globalThis.JobScriptPanel.open();
+    if (session) renderPanel();
+    else renderIdle();
+  }
+
+  function showPanelMessage(text) {
+    if (session) {
+      session.note = text + ' ' + session.note;
+      renderPanel();
+    } else {
+      idleNote = text;
+      renderIdle();
+    }
+  }
+
+  // After JobScript is updated or reloaded, scripts already on open pages lose their link to it.
+  async function ask(message) {
+    try {
+      return await chrome.runtime.sendMessage(message);
+    } catch (e) {
+      return {
+        ok: false,
+        error: /context invalidated/i.test(String(e && e.message))
+          ? 'JobScript was updated since this page loaded. Refresh the page and try again.'
+          : String(e && e.message),
+      };
+    }
+  }
+
+  // Same as the popup's "Fill this page": background.js runs the fill in every frame and logs it
+  // in the tracker. The fill redraws the panel itself.
+  async function fillFromPanel() {
+    if (running) return;
+    const res = await ask({ type: 'fill-self' });
+    if (!res || !res.ok) showPanelMessage('Nothing filled: ' + ((res && res.error) || 'no answer from JobScript.'));
+  }
+
+  async function openTracker() {
+    const res = await ask({ type: 'open-tracker' });
+    if (!res || !res.ok) showPanelMessage('Couldn’t open the tracker: ' + ((res && res.error) || 'no answer from JobScript.'));
   }
 
   // ---------------------------------------------------------------------------
@@ -1925,16 +1995,10 @@
   // Opens the job description page ('job') or Tailor & Fill ('tailor') for this tab, and says why
   // in the panel if it can't.
   async function openJobPage(page) {
-    let res;
-    try {
-      res = await chrome.runtime.sendMessage({ type: page === 'tailor' ? 'tailor-start' : 'job-start' });
-    } catch (e) {
-      // After JobScript is updated or reloaded, scripts already on open pages lose their link to it.
-      res = { ok: false, error: /context invalidated/i.test(String(e && e.message)) ? 'JobScript was updated since this page loaded. Refresh the page and press Fill again.' : String(e && e.message) };
-    }
+    const res = await ask({ type: page === 'tailor' ? 'tailor-start' : 'job-start' });
     if (res && res.ok) return;
-    session.note = 'Couldn’t open the job description: ' + ((res && res.error) || 'no answer from JobScript.') + ' ' + session.note;
-    renderPanel();
+    const what = page === 'tailor' ? 'Tailor & Fill' : 'the job description';
+    showPanelMessage(`Couldn’t open ${what}: ` + ((res && res.error) || 'no answer from JobScript.'));
   }
 
   // Fill one field and record its status.
@@ -2608,6 +2672,14 @@
         review: null,
       };
       Object.assign(session, (({ title, company }) => ({ jobTitle: title, company }))(titleAndCompany()));
+      idleNote = '';
+      // You asked for this fill, so the panel opens even if you closed it; closing it again
+      // leaves the floating button.
+      // (Frames without a form return null below and show nothing.)
+      if (collectFields(root).length) {
+        globalThis.JobScriptPanel.showLauncher(openPanel);
+        globalThis.JobScriptPanel.open();
+      }
       const first = await attachResumeFirst(root, profile, resume);
       if (first.attached && currentSite() && currentSite().resumeReloads) {
         // iCIMS sends the page off to read the resume as soon as it's attached.
@@ -2686,6 +2758,7 @@
     watchSteps();
     if (session.learning) watchAnswersWhileLearning();
     session.note = stepNote(stepFields.length);
+    globalThis.JobScriptPanel.showLauncher(openPanel);
     renderPanel();
   }
 
