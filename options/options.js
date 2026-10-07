@@ -643,10 +643,13 @@ letterTone.addEventListener('change', () => S.saveResearchSettings({ tone: lette
 letterLength.addEventListener('change', () => S.saveResearchSettings({ length: letterLength.value }));
 
 const autoShow = document.getElementById('auto-show');
+const showButton = document.getElementById('show-button');
 S.getPanelSettings().then((s) => {
   autoShow.checked = s.autoShow;
+  showButton.checked = s.showButton;
 });
 autoShow.addEventListener('change', () => S.savePanelSettings({ autoShow: autoShow.checked }));
+showButton.addEventListener('change', () => S.savePanelSettings({ showButton: showButton.checked }));
 
 const autoSave = document.getElementById('auto-save');
 S.getAnswerSettings().then((s) => {
