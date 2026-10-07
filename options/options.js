@@ -628,6 +628,12 @@ for (const m of S.AI_MODELS) aiModel.append(new Option(m.label, m.id));
 // ---------------------------------------------------------------------------
 // Saving answers
 
+const autoShow = document.getElementById('auto-show');
+S.getPanelSettings().then((s) => {
+  autoShow.checked = s.autoShow;
+});
+autoShow.addEventListener('change', () => S.savePanelSettings({ autoShow: autoShow.checked }));
+
 const autoSave = document.getElementById('auto-save');
 S.getAnswerSettings().then((s) => {
   autoSave.checked = s.autoSave;
