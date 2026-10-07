@@ -1671,6 +1671,7 @@
     if (hasSuggestions) actions.push({ label: 'Accept all', ariaLabel: 'Accept all suggestions', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
       summaryText: fillSummaryText(fields),
+      details: companyDetails(),
       note: session.note,
       footerActions: footerActions(),
       review: session.review,
@@ -1699,15 +1700,49 @@
     return [
       { label: 'Job description', ariaLabel: 'Open the job description and upload a resume made for this job', onClick: () => openJobPage('job') },
       { label: 'Tailor & Fill', ariaLabel: 'Tailor your resume to this job with Claude, then fill', onClick: () => openJobPage('tailor') },
+      { label: 'Write cover letter', ariaLabel: 'Write a cover letter for this job', onClick: () => openPage('letter-open', 'the cover letter page') },
+      { label: 'Company profile', ariaLabel: 'Open the company profile for this job', onClick: () => openPage('company-open', 'the company profile') },
       { label: 'Open tracker', ariaLabel: 'Open the applications tracker', onClick: openTracker },
     ];
   }
+
+  async function openPage(type, what) {
+    const res = await ask({ type });
+    if (!res || !res.ok) showPanelMessage(`Couldn’t open ${what}: ` + ((res && res.error) || 'no answer from JobScript.'));
+  }
+
+  // The company's saved profile, shortened for the panel; edited on the company page.
+  let companyProfile = null;
+
+  function companyDetails() {
+    const c = companyProfile;
+    if (!c) return null;
+    const lines = [];
+    if (c.mission[0]) lines.push('Mission: ' + c.mission[0].text);
+    if (c.values.length) lines.push('Values: ' + c.values.slice(0, 4).map((v) => v.text).join(' · '));
+    if (c.news[0]) lines.push('News: ' + c.news[0].text);
+    if (c.updatedAt) lines.push(`Updated ${new Date(c.updatedAt).toLocaleDateString()}. Edit it under “Company profile”.`);
+    return lines.length ? { title: c.name || 'Company', lines } : null;
+  }
+
+  async function loadCompanyProfile(name) {
+    companyProfile = name ? await S.getCompany(name).catch(() => null) : null;
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !session || !session.company) return;
+    const key = 'company:' + S.companyKey(session.company);
+    if (!changes[key]) return;
+    companyProfile = changes[key].newValue ? S.cleanCompany(changes[key].newValue) : null;
+    renderPanel();
+  });
 
   // The panel before JobScript has filled anything on this page.
   function renderIdle() {
     globalThis.JobScriptPanel.render({
       note: idleNote || 'Nothing filled on this page yet. ' + siteWarning() + DEFAULT_NOTE,
       summaryText: '',
+      details: companyDetails(),
       emptyText: 'Press “Fill this page” to fill this form from your profile.',
       toolbarActions: [{ label: 'Fill this page', ariaLabel: 'Fill this page', primary: true, onClick: fillFromPanel }],
       footerActions: footerActions(),
@@ -1716,10 +1751,13 @@
     });
   }
 
-  function openPanel() {
+  async function openPanel() {
     globalThis.JobScriptPanel.open();
-    if (session) renderPanel();
-    else renderIdle();
+    if (session) return renderPanel();
+    renderIdle();
+    // Before a fill, show the company's saved profile too, once it's loaded.
+    await loadCompanyProfile(titleAndCompany().company);
+    if (!session && companyProfile) renderIdle();
   }
 
   function showPanelMessage(text) {
@@ -2789,6 +2827,7 @@
         review: null,
       };
       Object.assign(session, (({ title, company }) => ({ jobTitle: title, company }))(titleAndCompany()));
+      await loadCompanyProfile(session.company);
       idleNote = '';
       // You asked for this fill, so the panel opens even if you closed it; closing it again
       // leaves the floating button.
