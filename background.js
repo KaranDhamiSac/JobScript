@@ -6,7 +6,7 @@
 
 // Chrome runs this file as a service worker and loads helpers with importScripts; Firefox lists
 // them before this file in manifest.json "background.scripts".
-if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js');
+if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/research.js');
 
 const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'lib/dateRules.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js'];
 const CONTENT_CSS = ['content/autofill.css'];
@@ -221,6 +221,79 @@ async function fillWithTailored(msg) {
 }
 
 // ---------------------------------------------------------------------------
+// Job and company research, for tailoring and cover letters. Requested from JobScript's own
+// pages (company, letter, tailor), never from web pages.
+
+async function aiAccess() {
+  const apiKey = await JobScriptStorage.getApiKey();
+  if (!apiKey) return { ok: false, error: 'Add your Anthropic API key on the options page first.' };
+  if (!(await chrome.permissions.contains({ origins: [ANTHROPIC_ORIGIN] }))) {
+    return { ok: false, error: 'JobScript needs permission to reach api.anthropic.com.', needsPermission: true };
+  }
+  return { ok: true, apiKey, settings: await JobScriptStorage.getAiSettings() };
+}
+
+// The parsed job description for an application, from the cache unless refresh is set.
+async function ensureJobParse(url, refresh) {
+  const posting = await JobScriptStorage.getPosting(url);
+  if (!posting) return { ok: false, error: 'No job description is saved for this application yet. Fill the application page first.' };
+  const cached = !refresh && (await JobScriptStorage.getJobParse(url));
+  if (cached) return { ok: true, parsed: cached, posting, cached: true };
+  const access = await aiAccess();
+  if (!access.ok) return access;
+  const res = await JobScriptAI.parseJob({ apiKey: access.apiKey, posting });
+  if (!res.ok) return res;
+  const parsed = await JobScriptStorage.saveJobParse(url, Object.assign(res.parsed, { model: res.model }));
+  return { ok: true, parsed, posting, cached: false, cost: res.cost };
+}
+
+function siteOrigins(domain) {
+  const host = String(domain || '').toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '').replace(/^www\./, '');
+  return /^[a-z0-9.-]+\.[a-z]{2,}$/.test(host) ? [`https://${host}/*`, `https://www.${host}/*`] : null;
+}
+
+// Research a company in the chosen mode and merge it into its saved profile: researched items
+// are replaced, your own additions and edits are kept.
+async function researchCompany(msg) {
+  const name = String(msg.name || '').trim().slice(0, 200);
+  if (!name) return { ok: false, error: 'Enter the company name first.' };
+  const mode = msg.mode === 'search' ? 'search' : 'website';
+  const domain = String(msg.domain || '').trim().slice(0, 200);
+  const access = await aiAccess();
+  if (!access.ok) return access;
+
+  let res;
+  let pagesRead = [];
+  if (mode === 'website') {
+    const origins = siteOrigins(domain);
+    if (!origins) return { ok: false, error: 'Enter the company’s website, like example.com.' };
+    if (!(await chrome.permissions.contains({ origins: [origins[0]] }))) {
+      return { ok: false, error: `Allow JobScript to read ${domain} first.`, needsSitePermission: true };
+    }
+    try {
+      const pages = await JobScriptResearch.fetchCompanyPages(domain);
+      pagesRead = pages.map((p) => p.url);
+      res = await JobScriptAI.summarizeCompanyPages({ apiKey: access.apiKey, company: name, domain, pages });
+    } finally {
+      // Access was only for this research. Keep it if you also taught JobScript this site.
+      const learned = (await chrome.scripting.getRegisteredContentScripts()).some((s) => origins.some((o) => s.matches.includes(o)));
+      if (!learned) await chrome.permissions.remove({ origins }).catch(() => {});
+    }
+  } else {
+    res = await JobScriptAI.researchCompanyWeb({ apiKey: access.apiKey, company: name, domain });
+  }
+  if (!res.ok) return res;
+
+  const existing = (await JobScriptStorage.getCompany(name)) || JobScriptStorage.blankCompany(name);
+  const merged = Object.assign({}, existing, { name, domain: domain || existing.domain, mode, updatedAt: new Date().toISOString() });
+  for (const sec of JobScriptStorage.COMPANY_SECTIONS) {
+    merged[sec] = [...existing[sec].filter((it) => it.byYou), ...res.items[sec]];
+  }
+  const profile = await JobScriptStorage.saveCompany(merged);
+  return { ok: true, profile, dropped: res.dropped, cost: res.cost, searches: res.searches || 0, pagesRead };
+}
+
+// ---------------------------------------------------------------------------
 // Learn mode. On a site you let JobScript run on (an optional permission for just that site,
 // asked for from the popup), the content script is registered to load with every page, so the
 // panel can follow a multi-step form even when each step loads a new page.
@@ -361,6 +434,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!isTrustedSender(sender, 'options/')) return false;
     parseResumeWithAi(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Something went wrong asking Claude.' }));
     return true;
+  }
+  if (msg.type === 'job-parse') {
+    if (!['company/', 'letter/', 'tailor/'].some((p) => isTrustedSender(sender, p)) || typeof msg.url !== 'string') return false;
+    ensureJobParse(msg.url, !!msg.refresh).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not read the job description.' }));
+    return true;
+  }
+  if (msg.type === 'company-research') {
+    if (!isTrustedSender(sender, 'company/')) return false;
+    researchCompany(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Company research failed.' }));
+    return true;
+  }
+  if (msg.type === 'research-estimate') {
+    if (!isTrustedSender(sender, 'company/')) return false;
+    sendResponse({ ok: true, estimate: JobScriptAI.estimateWebSearchCost() });
+    return false;
   }
   if (msg.type === 'ai-answer') {
     if (!isOwnContentScript(sender)) return false;

@@ -42,6 +42,7 @@
     "scripts": [
       "lib/storage.js",
       "lib/ai.js",
+      "lib/research.js",
       "background.js"
     ]
   },
