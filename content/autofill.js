@@ -1708,6 +1708,7 @@
     globalThis.JobScriptPanel.render({
       note: idleNote || 'Nothing filled on this page yet. ' + siteWarning() + DEFAULT_NOTE,
       summaryText: '',
+      emptyText: 'Press “Fill this page” to fill this form from your profile.',
       toolbarActions: [{ label: 'Fill this page', ariaLabel: 'Fill this page', primary: true, onClick: fillFromPanel }],
       footerActions: footerActions(),
       onSelect: () => {},
@@ -2782,7 +2783,39 @@
     renderPanel();
   }
 
+  // On the job sites JobScript runs on by itself, put the floating JobScript button on
+  // application pages (a form with a few fields or an upload) and, in the top frame, on job
+  // postings. With "Show panel automatically" on, application pages also open the panel, which
+  // fills nothing until you press Fill.
+  const LAUNCHER_WAIT_MS = 10000;
+
+  function pageKind() {
+    const fields = collectFields(findRoot().root);
+    if (fields.length >= 3 || fields.some((f) => f.kind === 'file')) return 'application';
+    if (window.top === window && descriptionFrom(document)) return 'posting';
+    return null;
+  }
+
+  async function initLauncher() {
+    let kind = null;
+    for (const end = Date.now() + LAUNCHER_WAIT_MS; !kind && Date.now() < end; ) {
+      kind = pageKind();
+      if (!kind) await sleep(500);
+    }
+    if (!kind || session) return; // a fill (or a learned site) already set up the panel
+    globalThis.JobScriptPanel.showLauncher(openPanel);
+    if (kind !== 'application') return;
+    let settings;
+    try {
+      settings = await S.getPanelSettings();
+    } catch (e) {
+      return;
+    }
+    if (settings.autoShow && !session && !globalThis.JobScriptPanel.isOpen()) renderIdle();
+  }
+
   globalThis.__jobscriptFill = fillPage;
   globalThis.__jobscriptJobPosting = jobPosting;
   autoStart();
+  initLauncher();
 })();
