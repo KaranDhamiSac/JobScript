@@ -141,6 +141,19 @@ function dropOneBullet(resume) {
   return false;
 }
 
+// The contact line under your name, the same on your resume and cover letters.
+export function contactParts(profile) {
+  const bare = (u) => String(u || '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+  return [
+    [profile.city, profile.state].filter(Boolean).join(', '),
+    profile.phone,
+    profile.email,
+    bare(profile.linkedin),
+    bare(profile.github),
+    bare(profile.portfolio),
+  ].filter(Boolean);
+}
+
 export async function buildResumePdf(input, meta) {
   const resume = JSON.parse(JSON.stringify(input));
   const pdf = await PDFDocument.create();

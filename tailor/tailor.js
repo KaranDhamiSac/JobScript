@@ -6,7 +6,7 @@
 // 2. Show original vs tailored side by side; every line is editable, nothing is used yet.
 // 3. On approve: build the PDF here (pdf-lib), save it with the application, and fill the
 //    job tab with it attached.
-import { buildResumePdf } from './resume-pdf.js';
+import { buildResumePdf, contactParts } from './resume-pdf.js';
 
 const S = JobScriptStorage;
 const ANTHROPIC_ORIGIN = { origins: ['https://api.anthropic.com/*'] };
@@ -52,15 +52,7 @@ function fileName() {
 }
 
 function contactLine() {
-  const bare = (u) => String(u || '').replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
-  return [
-    [profile.city, profile.state].filter(Boolean).join(', '),
-    profile.phone,
-    profile.email,
-    bare(profile.linkedin),
-    bare(profile.github),
-    bare(profile.portfolio),
-  ].filter(Boolean).join('  |  ');
+  return contactParts(profile).join('  |  ');
 }
 
 // ---------------------------------------------------------------------------
