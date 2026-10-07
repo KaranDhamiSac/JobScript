@@ -253,7 +253,8 @@ function siteOrigins(domain) {
 }
 
 // Research a company in the chosen mode and merge it into its saved profile: researched items
-// are replaced, your own additions and edits are kept.
+// are replaced section by section where the new run found some, and your own additions and
+// edits are always kept.
 async function researchCompany(msg) {
   const name = String(msg.name || '').trim().slice(0, 200);
   if (!name) return { ok: false, error: 'Enter the company name first.' };
@@ -287,7 +288,9 @@ async function researchCompany(msg) {
   const existing = (await JobScriptStorage.getCompany(name)) || JobScriptStorage.blankCompany(name);
   const merged = Object.assign({}, existing, { name, domain: domain || existing.domain, mode, updatedAt: new Date().toISOString() });
   for (const sec of JobScriptStorage.COMPANY_SECTIONS) {
-    merged[sec] = [...existing[sec].filter((it) => it.byYou), ...res.items[sec]];
+    // A section this run found nothing for keeps what earlier research found.
+    const researched = res.items[sec].length ? res.items[sec] : existing[sec].filter((it) => !it.byYou);
+    merged[sec] = [...existing[sec].filter((it) => it.byYou), ...researched];
   }
   const profile = await JobScriptStorage.saveCompany(merged);
   return { ok: true, profile, dropped: res.dropped, cost: res.cost, searches: res.searches || 0, pagesRead };
