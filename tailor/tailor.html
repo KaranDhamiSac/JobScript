@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <!-- Pages only talk to Anthropic. The manifest also allows https: so background.js can read
+       a company's site for research, with the per-site permission you grant. -->
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://api.anthropic.com">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tailor Resume</title>
   <link rel="stylesheet" href="tailor.css">

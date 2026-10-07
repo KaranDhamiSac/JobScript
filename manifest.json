@@ -102,7 +102,7 @@
     }
   ],
   "content_security_policy": {
-    "extension_pages": "default-src 'self'; script-src 'self'; connect-src 'self' https://api.anthropic.com; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+    "extension_pages": "default-src 'self'; script-src 'self'; connect-src 'self' https://api.anthropic.com https:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
   },
   "browser_specific_settings": {
     "gecko": {
