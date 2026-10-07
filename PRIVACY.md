@@ -17,6 +17,9 @@ JobScript stores the details you enter on its options page:
 - if you use the Claude features: your Anthropic API key and your chosen model
 - your application tracker (company, job title, job ID, page address, the dates you filled and applied, and the status of each application) and your daily application goal
 - resumes you upload for a specific job, or tailored resumes you approve, saved with their application (the most recent 60)
+- the full text of each job posting you fill an application for, saved with its tracker entry (the most recent 300), and Claude's breakdown of it once you tailor or write a cover letter
+- company profiles you research: the company's name and website, and its mission, values, products, news and culture as found on the web, each with its source address (the most recent 200), plus anything you add
+- cover letters you save, as text and PDF, with their application (the most recent 150), and your research mode and cover letter tone and length
 
 ## Where it is stored
 
@@ -32,9 +35,9 @@ If you choose to, the **Job description** page saves the job description and the
 
 ## What JobScript sends, and to whom
 
-**By default, nothing.** JobScript has no servers and no analytics or tracking. Unless you click **Import with Claude** or **Tailor & Fill**, or turn on AI answers, it makes no network requests.
+**By default, nothing.** JobScript has no servers and no analytics or tracking. Unless you click **Import with Claude**, **Tailor & Fill**, a company research button or **Write cover letter**, or turn on AI answers, it makes no network requests. (Reading a job posting happens on the page you're on; on an /apply page JobScript also loads the posting page on the same site.)
 
-Your information leaves your device in four ways.
+Your information leaves your device in the ways below.
 
 ### 1. Into the job application you fill
 
@@ -52,7 +55,18 @@ With an API key saved, the options page shows **Import with Claude**. Clicking i
 
 ### 3. To Anthropic, only if you click Tailor & Fill
 
-**Tailor & Fill** sends Anthropic your master resume (jobs, projects, bullet points, skills and education, without your name or contact details) and the job posting from the page, so Claude can pick, reorder and reword your existing bullets for that job. The tailored PDF is then built on your device with a bundled PDF library, and nothing is used until you approve it.
+**Tailor & Fill** sends Anthropic your master resume (jobs, projects, bullet points, skills and education, without your name or contact details), the job posting from the page, Claude's breakdown of it, and the company's profile if you've researched it, so Claude can pick, reorder and reword your existing bullets for that job and write a summary. The tailored PDF is then built on your device with a bundled PDF library, and nothing is used until you approve it.
+
+### Job and company research, and cover letters
+
+These only run when you click their buttons.
+
+- **Reading a job description** sends Anthropic the job posting (title, company and text). Nothing about you.
+- **Company research, website mode** first asks your permission to read that one company's website, then JobScript fetches up to eight of its pages (home, About, Mission, Values, Careers, Culture) directly from the company's site, without cookies, and removes the permission again. The company's site sees an ordinary visit from your browser. The pages' text and the company's name go to Anthropic to summarize. Nothing about you.
+- **Company research, web search mode** sends Anthropic the company's name and website; Claude searches the web through Anthropic's web search tool, which costs $10 per 1,000 searches on your Anthropic account (at most five per run; the estimate is shown before you click). Nothing about you.
+- **Write cover letter** sends Anthropic your master resume (as for Tailor & Fill, without your name or contact details), the job breakdown and the company profile. Your name, contact line and sign-off are added on your device when the letter and PDF are built.
+
+Text from job postings and company websites is sent to Claude inside labeled tags, with instructions to treat it as information only and to ignore any instructions it contains.
 
 ### 4. To Anthropic, only if you turn on AI answers
 
@@ -65,7 +79,7 @@ AI answers are **off by default**. If you turn them on and add your own Anthropi
 
 When answering questions, JobScript never sends your email, phone number, street address, ZIP code or self-identification (EEO) answers. It also never asks the AI questions about consent, signatures, SSN, date of birth or similar sensitive topics.
 
-Requests to Anthropic (both features) are authenticated with your API key and billed to your Anthropic account. Anthropic's commercial terms and privacy policy govern how Anthropic handles it. JobScript uses no intermediary server; requests go straight from your browser to Anthropic.
+Requests to Anthropic (all of these features) are authenticated with your API key and billed to your Anthropic account. Anthropic's commercial terms and privacy policy govern how Anthropic handles it. JobScript uses no intermediary server; requests go straight from your browser to Anthropic.
 
 Claude's answers only appear as suggestions in JobScript's side panel. None are typed into the form until you click Accept or Insert. You can turn AI answers off at any time, which also removes the extension's permission to contact Anthropic.
 
