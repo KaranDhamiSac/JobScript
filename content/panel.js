@@ -422,6 +422,11 @@
       onLaunch = onOpen;
       if (mode !== 'panel') drawLauncher();
     },
+    // Takes the floating button away (you turned it off); an open panel stays open.
+    hideLauncher() {
+      onLaunch = null;
+      if (mode === 'launcher') remove();
+    },
     isOpen() {
       return mode === 'panel' && !!(host && host.isConnected);
     },
