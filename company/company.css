@@ -10,3 +10,5 @@
 .item.mine textarea { background: var(--changed); }
 .item button { align-self: start; }
 .empty-note { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+.modes label.check { display: block; font-weight: 400; }
+.modes input[type="radio"] { width: auto; margin: 0 6px 0 0; vertical-align: -1px; }
