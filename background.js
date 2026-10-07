@@ -318,6 +318,29 @@ async function writeLetter(msg) {
   return { ok: true, text, letter: res.letter, flags, model: res.model, cost: (res.cost || 0) + (job.cost || 0), tone, length, companyResearched: !!company.updatedAt || JobScriptStorage.COMPANY_SECTIONS.some((s) => company[s].length) };
 }
 
+// "Add to application" on the cover letter page: the application's tab (the one the page was
+// opened from, if it's still on that application) gets the letter in its cover letter field.
+async function letterIntoTab(msg) {
+  const key = JobScriptStorage.applicationKey(String(msg.url || ''));
+  let tab = null;
+  if (Number.isInteger(msg.tabId)) tab = await chrome.tabs.get(msg.tabId).catch(() => null);
+  if (!tab || JobScriptStorage.applicationKey(tab.url || '') !== key) {
+    const tabs = await chrome.tabs.query({});
+    tab = tabs.find((t) => JobScriptStorage.applicationKey(t.url || '') === key) || null;
+  }
+  if (!tab) return { ok: false, error: 'Open the application page first, then try again.' };
+  let frames;
+  try {
+    frames = await callWithInjection(tab.id, '__jobscriptCoverLetter');
+  } catch (e) {
+    return { ok: false, error: 'JobScript cannot run on the application page.' };
+  }
+  const done = frames.filter((f) => f && f.ok);
+  if (!done.length) return { ok: false, error: 'This application has no cover letter field on the current page.' };
+  await chrome.tabs.update(tab.id, { active: true });
+  return { ok: true, attached: done.reduce((n, f) => n + f.attached, 0), pasted: done.reduce((n, f) => n + f.pasted, 0) };
+}
+
 // ---------------------------------------------------------------------------
 // Learn mode. On a site you let JobScript run on (an optional permission for just that site,
 // asked for from the popup), the content script is registered to load with every page, so the
@@ -468,6 +491,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'letter-write') {
     if (!isTrustedSender(sender, 'letter/') || typeof msg.url !== 'string') return false;
     writeLetter(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not write the cover letter.' }));
+    return true;
+  }
+  if (msg.type === 'letter-fill') {
+    if (!isTrustedSender(sender, 'letter/') || typeof msg.url !== 'string') return false;
+    letterIntoTab(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not add the letter to the application.' }));
     return true;
   }
   if (msg.type === 'company-research') {

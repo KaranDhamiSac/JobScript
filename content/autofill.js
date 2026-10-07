@@ -2697,6 +2697,51 @@
     renderPanel();
   }
 
+  // ---------------------------------------------------------------------------
+  // Cover letters (written on the cover letter page, saved with the application): attached to
+  // cover letter uploads as a PDF, or pasted into a cover letter text box.
+
+  const COVER_LETTER_RE = /cover\s*letter|letter of (interest|intent)|motivation(al)? letter/i;
+
+  // replace: put it in even if the field already has something (you asked for it).
+  async function fillCoverLetter(root, profile, replace) {
+    const letter = await S.getLetter(location.href);
+    if (!letter || !letter.text) return { found: 0, attached: 0, pasted: 0 };
+    const fields = analyze(root, profile).filter((f) => {
+      const text = [f.label, f.desc.labelRaw, f.desc.attrs, f.desc.context].join(' ');
+      return COVER_LETTER_RE.test(text) && (f.kind === 'file' || f.kind === 'textarea');
+    });
+    let attached = 0;
+    let pasted = 0;
+    for (const f of fields) {
+      if (!replace && !isEmpty(f)) continue;
+      let ok = false;
+      if (f.kind === 'file' && letter.pdf && letter.pdf.data) {
+        ok = attachFile(f.el, { name: letter.pdf.name, type: 'application/pdf', data: letter.pdf.data });
+        if (ok) attached++;
+      } else if (f.kind === 'textarea') {
+        ok = fillText(f.el, letter.text);
+        if (ok) pasted++;
+      }
+      if (ok && session) {
+        const known = registry.get(f.id);
+        const target = known || f;
+        if (!known) registry.set(f.id, f);
+        globalThis.JobScriptBank.unwatch(target);
+        setStatus(target, 'filled', f.kind === 'file' ? `Your cover letter (${letter.pdf.name})` : 'Your cover letter');
+      }
+    }
+    return { found: fields.length, attached, pasted };
+  }
+
+  // From the cover letter page's "Add to application" button, via background.js.
+  async function coverLetterFromPage() {
+    const res = await fillCoverLetter(findRoot().root, await S.getProfile(), true);
+    if (!res.found) return null; // no cover letter field in this frame
+    if (session) renderPanel();
+    return { ok: true, attached: res.attached, pasted: res.pasted };
+  }
+
   // Returns null when this frame has no form fields, so background.js can ignore it.
   // opts.tailoredId: attach that tailored resume instead of the master (replacing any file
   // already attached to the resume field).
@@ -2768,6 +2813,8 @@
 
       const s = await runPass(root, profile, resume, false, first.handled);
       s.found += first.handled.size;
+      // A cover letter you saved for this application goes into its cover letter field.
+      if (s.found) await fillCoverLetter(root, profile, false);
       if (!s.found) {
         if (stopWatching) stopWatching();
         if (stepWatcher) stepWatcher();
@@ -2867,6 +2914,7 @@
 
   globalThis.__jobscriptFill = fillPage;
   globalThis.__jobscriptJobPosting = jobPosting;
+  globalThis.__jobscriptCoverLetter = coverLetterFromPage;
   autoStart();
   initLauncher();
 })();
