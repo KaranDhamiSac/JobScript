@@ -201,7 +201,13 @@ async function tailorWithAi(msg) {
     return { ok: false, error: 'JobScript needs permission to reach api.anthropic.com.' };
   }
   const [settings, profile] = await Promise.all([JobScriptStorage.getAiSettings(), JobScriptStorage.getProfile()]);
-  return JobScriptAI.tailorResume({ apiKey, model: settings.model, profile, posting: session.posting });
+  // The job breakdown (read once per job, with Haiku) steers the tailoring; the company profile,
+  // if you've researched it, may shape the summary. Tailoring still works without either.
+  const job = await ensureJobParse(session.posting.url, false, session.posting);
+  const company = await JobScriptStorage.getCompany(session.posting.company);
+  const res = await JobScriptAI.tailorResume({ apiKey, model: settings.model, profile, posting: session.posting, parsed: job.ok ? job.parsed : null, company });
+  if (res.ok && job.ok && job.cost) res.cost = (res.cost || 0) + job.cost;
+  return res;
 }
 
 async function fillWithTailored(msg) {
@@ -234,8 +240,10 @@ async function aiAccess() {
 }
 
 // The parsed job description for an application, from the cache unless refresh is set.
-async function ensureJobParse(url, refresh) {
-  const posting = await JobScriptStorage.getPosting(url);
+// fallback: a posting to save first if none is saved yet (Tailor & Fill has it in its session).
+async function ensureJobParse(url, refresh, fallback) {
+  let posting = await JobScriptStorage.getPosting(url);
+  if (!posting && fallback) posting = await JobScriptStorage.savePosting(fallback);
   if (!posting) return { ok: false, error: 'No job description is saved for this application yet. Fill the application page first.' };
   const cached = !refresh && (await JobScriptStorage.getJobParse(url));
   if (cached) return { ok: true, parsed: cached, posting, cached: true };
