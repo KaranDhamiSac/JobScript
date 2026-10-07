@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Pages only talk to Anthropic. The manifest also allows https: so background.js can read
+       a company's site for research, with the per-site permission you grant. -->
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://api.anthropic.com">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Company profile</title>
+  <link rel="stylesheet" href="../tailor/tailor.css">
+  <link rel="stylesheet" href="company.css">
+</head>
+<body>
+  <main>
+    <header class="page-head">
+      <h1 id="title">Company profile</h1>
+      <p class="muted">Used to shape your cover letters, and lightly the summary on a tailored resume. Every item shows where it came from. Fix or add anything; your changes are kept when you refresh.</p>
+    </header>
+
+    <section>
+      <div class="grid">
+        <label>Company <input id="name" type="text" autocomplete="off"></label>
+        <label>Website <input id="domain" type="text" placeholder="example.com" autocomplete="off"></label>
+      </div>
+      <fieldset class="modes">
+        <legend>Research with</legend>
+        <label class="check"><input type="radio" name="mode" value="website"> The company’s own website <span class="muted small">(free apart from Claude Haiku tokens; asks to read that one site, then gives the access back)</span></label>
+        <label class="check"><input type="radio" name="mode" value="search"> Web search <span class="muted small">(also finds recent news; costs more)</span></label>
+      </fieldset>
+      <p id="estimate" class="estimate" hidden></p>
+      <div class="row">
+        <button id="research" type="button" class="primary">Research</button>
+        <span id="updated" class="muted small"></span>
+      </div>
+      <p id="status" role="status"></p>
+      <p class="muted small">Claude receives only the company’s name and website, plus the pages it reads. Nothing about you is sent. Page text is treated as data, never as instructions.</p>
+    </section>
+
+    <div id="sections"></div>
+  </main>
+
+  <footer class="savebar">
+    <span id="save-status" class="muted" role="status"></span>
+    <span class="spacer"></span>
+    <button id="save" type="button" class="primary" disabled>Save changes</button>
+  </footer>
+
+  <script src="../lib/storage.js"></script>
+  <script src="company.js"></script>
+</body>
+</html>
