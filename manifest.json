@@ -43,6 +43,7 @@
       "lib/storage.js",
       "lib/ai.js",
       "lib/research.js",
+      "lib/letterCheck.js",
       "background.js"
     ]
   },

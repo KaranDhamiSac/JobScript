@@ -6,7 +6,7 @@
 
 // Chrome runs this file as a service worker and loads helpers with importScripts; Firefox lists
 // them before this file in manifest.json "background.scripts".
-if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/research.js');
+if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/research.js', 'lib/letterCheck.js');
 
 const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'lib/dateRules.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js'];
 const CONTENT_CSS = ['content/autofill.css'];
@@ -296,6 +296,28 @@ async function researchCompany(msg) {
   return { ok: true, profile, dropped: res.dropped, cost: res.cost, searches: res.searches || 0, pagesRead };
 }
 
+// A cover letter for an application: parses the job if needed, uses the saved company profile
+// (empty if you haven't researched the company), and flags anything that doesn't trace back.
+async function writeLetter(msg) {
+  const url = String(msg.url || '');
+  const job = await ensureJobParse(url, false);
+  if (!job.ok) return job;
+  const access = await aiAccess();
+  if (!access.ok) return access;
+  const [profile, settings] = await Promise.all([JobScriptStorage.getProfile(), JobScriptStorage.getResearchSettings()]);
+  const company = (await JobScriptStorage.getCompany(job.posting.company)) || JobScriptStorage.blankCompany(job.posting.company);
+  const tone = JobScriptStorage.LETTER_TONES.includes(msg.tone) ? msg.tone : settings.tone;
+  const length = JobScriptStorage.LETTER_LENGTHS.includes(msg.length) ? msg.length : settings.length;
+  const res = await JobScriptAI.writeCoverLetter({ apiKey: access.apiKey, model: access.settings.model, profile, posting: job.posting, parsed: job.parsed, company, tone, length });
+  if (!res.ok) return res;
+  const text = [res.letter.greeting, ...res.letter.paragraphs].join('\n\n');
+  const flags = JobScriptLetterCheck.check(text, {
+    profile, company, companyName: job.posting.company, role: job.posting.title,
+    jobText: [job.posting.description, JSON.stringify(job.parsed)].join('\n'),
+  });
+  return { ok: true, text, letter: res.letter, flags, model: res.model, cost: (res.cost || 0) + (job.cost || 0), tone, length, companyResearched: !!company.updatedAt || JobScriptStorage.COMPANY_SECTIONS.some((s) => company[s].length) };
+}
+
 // ---------------------------------------------------------------------------
 // Learn mode. On a site you let JobScript run on (an optional permission for just that site,
 // asked for from the popup), the content script is registered to load with every page, so the
@@ -441,6 +463,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'job-parse') {
     if (!['company/', 'letter/', 'tailor/'].some((p) => isTrustedSender(sender, p)) || typeof msg.url !== 'string') return false;
     ensureJobParse(msg.url, !!msg.refresh).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not read the job description.' }));
+    return true;
+  }
+  if (msg.type === 'letter-write') {
+    if (!isTrustedSender(sender, 'letter/') || typeof msg.url !== 'string') return false;
+    writeLetter(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not write the cover letter.' }));
     return true;
   }
   if (msg.type === 'company-research') {

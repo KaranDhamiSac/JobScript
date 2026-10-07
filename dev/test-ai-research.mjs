@@ -110,4 +110,35 @@ await test('writing uses Sonnet unless you chose Opus', () => {
   assert.equal(AI.writingModel('claude-opus-5-5'), 'claude-opus-5-5');
 });
 
+await test('cover letters: Sonnet, no name or contact details, inputs tagged, company ids checked', async () => {
+  const reqs = mockApi([textReply({
+    greeting: 'Dear Hiring Manager,',
+    opening: 'I am applying for the Data Analyst role at Example Co, whose mission to make local delivery simple speaks to me.',
+    body: ['At Northwind Logistics I built a Tableau dashboard that cut weekly reporting time by 40%.'],
+    closing: 'Thank you for your time.',
+    usedResumeIds: ['j0b0'],
+    usedCompanyItems: ['mission.0', 'values.9'],
+  }, { model: 'claude-sonnet-5-5' })]);
+  const profile = {
+    firstName: 'Testy', lastName: 'McTestface', email: 'testy@example.com', phone: '916-555-0100', city: 'Sacramento',
+    linkedin: 'https://linkedin.com/in/testy-example', skills: 'SQL, Tableau',
+    workHistory: [{ employer: 'Northwind Logistics', title: 'Analyst Intern', startDate: '2024-06', bullets: ['Built a Tableau dashboard that cut weekly reporting time by 40%'] }],
+    projects: [], education: [],
+  };
+  const company = { name: 'Example Co', mission: [{ text: 'Make local delivery simple.', source: 'https://example-co.test/about' }], values: [], products: [], news: [], culture: [] };
+  const res = await AI.writeCoverLetter({ apiKey: 'k', model: 'claude-haiku-4-5', profile, posting: { title: 'Data Analyst', company: 'Example Co' }, parsed: { keywords: ['SQL'] }, company, tone: 'warm', length: 'short' });
+  assert.equal(res.ok, true);
+  const r = reqs[0];
+  assert.equal(r.body.model, 'claude-sonnet-5-5');
+  assert.equal(r.body.fallbacks, 'default');
+  assert.equal(r.body.output_config.effort, 'medium');
+  const sent = JSON.stringify(r.body);
+  assert.doesNotMatch(sent, /Testy|McTestface|testy@example|555-0100|linkedin\.com|Sacramento/);
+  assert.match(r.body.messages[0].content, /<job_breakdown[^>]*>[\s\S]*<\/job_breakdown>/);
+  assert.match(r.body.messages[0].content, /<company_profile>[\s\S]*"id": "mission\.0"[\s\S]*<\/company_profile>/);
+  assert.match(r.body.messages[0].content, /Tone: Warm/);
+  assert.deepEqual(res.letter.usedCompanyItems, ['mission.0']);
+  assert.equal(res.letter.paragraphs.length, 3);
+});
+
 console.log(`\n${passed} tests passed`);
