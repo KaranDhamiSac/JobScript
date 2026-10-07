@@ -1638,7 +1638,8 @@
     const c = counts();
     const total = c.filled + c.suggested + c.needs + c.alreadyFilled;
     let text = `Filled ${c.filled + c.alreadyFilled} of ${total}.`;
-    const needs = fields.filter((f) => f.status === 'needs' && !f.prefilled).map((f) => f.label);
+    // Optional self-identification questions are yours to skip; they aren't "needs you".
+    const needs = fields.filter((f) => f.status === 'needs' && !f.prefilled && !(f.category === 'eeo' && !f.required)).map((f) => f.label);
     if (needs.length) {
       const shown = needs.slice(0, SUMMARY_MAX_LABELS).join(', ');
       const more = needs.length > SUMMARY_MAX_LABELS ? `, and ${needs.length - SUMMARY_MAX_LABELS} more` : '';
