@@ -312,6 +312,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     startTailor(msg.tabId, msg.type === 'job-tab' ? 'job' : 'tailor').then(sendResponse);
     return true;
   }
+  // The side panel's own buttons, so everything in the popup can also be done from the page.
+  if (msg.type === 'fill-self') {
+    if (!isOwnContentScript(sender)) return false;
+    fillTab(sender.tab.id).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not fill this page.' }));
+    return true;
+  }
+  if (msg.type === 'open-tracker') {
+    if (!isOwnContentScript(sender)) return false;
+    chrome.tabs.create({ url: chrome.runtime.getURL('tracker/tracker.html'), index: sender.tab.index + 1 }).then(
+      () => sendResponse({ ok: true }),
+      () => sendResponse({ ok: false, error: 'Could not open the tracker.' })
+    );
+    return true;
+  }
   if (msg.type === 'tailor-start' || msg.type === 'job-start') {
     if (!isOwnContentScript(sender)) return false;
     startTailor(sender.tab.id, msg.type === 'job-start' ? 'job' : 'tailor').then(sendResponse);
