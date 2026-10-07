@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Pages only talk to Anthropic. The manifest also allows https: so background.js can read
+       a company's site for research, with the per-site permission you grant. -->
+  <meta http-equiv="Content-Security-Policy" content="connect-src 'self' https://api.anthropic.com">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cover letter</title>
+  <link rel="stylesheet" href="../tailor/tailor.css">
+  <link rel="stylesheet" href="letter.css">
+</head>
+<body>
+  <main>
+    <header class="page-head">
+      <h1>Cover letter</h1>
+      <p id="job-line" class="muted"></p>
+    </header>
+
+    <section id="status-box">
+      <p id="status" role="status"></p>
+      <div class="row">
+        <button id="allow" type="button" class="primary" hidden>Allow access to Anthropic</button>
+      </div>
+    </section>
+
+    <section aria-labelledby="h-job">
+      <h2 id="h-job">The job</h2>
+      <p id="job-summary" class="muted">Not read yet.</p>
+      <div id="job-detail" hidden>
+        <h3>Required</h3><div id="job-required" class="chips"></div>
+        <h3>Preferred</h3><div id="job-preferred" class="chips"></div>
+        <h3>Keywords</h3><div id="job-keywords" class="chips"></div>
+        <p id="job-meta" class="muted small"></p>
+      </div>
+      <div class="row"><button id="reparse" type="button" class="secondary">Read the posting again</button></div>
+    </section>
+
+    <section aria-labelledby="h-company">
+      <h2 id="h-company">The company</h2>
+      <div id="company-summary"></div>
+      <div class="row"><a id="company-link" class="button secondary" target="_blank" rel="noopener">Open company profile</a></div>
+    </section>
+
+    <section aria-labelledby="h-write">
+      <h2 id="h-write">Write</h2>
+      <div class="grid">
+        <label>Tone
+          <select id="tone">
+            <option value="professional">Professional</option>
+            <option value="warm">Warm</option>
+            <option value="concise">Concise</option>
+          </select>
+        </label>
+        <label>Length
+          <select id="length">
+            <option value="short">Short (about 150 words)</option>
+            <option value="250">About 250 words</option>
+            <option value="full">Full page</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <button id="write" type="button" class="primary">Write cover letter</button>
+        <span class="muted small">Claude Sonnet writes from the job, the company profile and your master resume. Your name and contact details are added here, never sent.</span>
+      </div>
+    </section>
+
+    <section id="editor-box" aria-labelledby="h-letter" hidden>
+      <h2 id="h-letter">Your letter</h2>
+      <p class="muted small">Edit freely. JobScript re-checks it as you type: experience and numbers must come from your master resume, company facts from the company profile.</p>
+      <textarea id="letter" rows="18" aria-label="Cover letter text"></textarea>
+      <p id="signoff" class="muted small"></p>
+      <div id="flags-box">
+        <h3 id="flags-title"></h3>
+        <ul id="flags"></ul>
+      </div>
+      <div id="used-box" hidden>
+        <h3>Company facts used</h3>
+        <ul id="used"></ul>
+      </div>
+    </section>
+  </main>
+
+  <footer class="savebar" id="actions" hidden>
+    <span id="file-name" class="muted"></span>
+    <span class="spacer"></span>
+    <button id="preview" type="button" class="secondary">Preview PDF</button>
+    <button id="save" type="button" class="secondary">Save</button>
+    <button id="add" type="button" class="primary">Save &amp; add to application</button>
+  </footer>
+
+  <script src="../lib/storage.js"></script>
+  <script src="../lib/letterCheck.js"></script>
+  <script type="module" src="letter.js"></script>
+</body>
+</html>
