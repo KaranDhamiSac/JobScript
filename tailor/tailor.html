@@ -44,6 +44,13 @@
       </section>
 
       <section>
+        <h2>Summary</h2>
+        <p class="muted small">Written for this role from your master resume. The company’s profile may shape a few words here, never the bullets. Leave it empty to have no summary.</p>
+        <textarea id="summary" rows="3" aria-label="Resume summary"></textarea>
+        <p id="summary-note" class="muted small"></p>
+      </section>
+
+      <section>
         <h2>Experience</h2>
         <p class="muted small">Left: your master bullet. Right: the tailored version, which you can edit. Untick anything to leave it out.</p>
         <div id="jobs"></div>
@@ -71,6 +78,7 @@
   <footer class="savebar" id="actions" hidden>
     <span id="file-name" class="muted"></span>
     <span class="spacer"></span>
+    <button id="letter" type="button" class="secondary">Write cover letter</button>
     <button id="preview" type="button" class="secondary">Preview PDF</button>
     <button id="approve" type="button" class="primary">Approve &amp; fill application</button>
   </footer>

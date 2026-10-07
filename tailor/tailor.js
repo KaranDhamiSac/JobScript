@@ -179,6 +179,8 @@ function renderReview() {
   }
 
   $('skills').value = tailored.skills.join(', ');
+  $('summary').value = tailored.summary || '';
+  $('summary-note').textContent = tailored.summaryNote || '';
 }
 
 // The resume exactly as approved on screen.
@@ -188,6 +190,7 @@ function approvedResume() {
     name: $('r-name').value.trim(),
     contact: $('r-contact').value.split('|').map((s) => s.trim()).filter(Boolean),
     sections: [
+      { heading: 'Summary', lines: [$('summary').value.trim()] },
       { heading: 'Education', entries: collect(entryGetters.education) },
       { heading: 'Technical Skills', lines: [$('skills').value.trim()] },
       { heading: 'Experience', entries: collect(entryGetters.jobs) },
@@ -275,9 +278,11 @@ async function runTailor() {
     return;
   }
   tailored = res.tailored;
+  const used = [res.usedBreakdown ? 'the job breakdown' : '', res.usedCompany ? 'the company profile (summary only)' : ''].filter(Boolean);
+  if (used.length) $('sent-note').textContent += ` This time it also used ${used.join(' and ')}.`;
   const reverted = [...tailored.jobs, ...tailored.projects].flatMap((e) => e.bullets).filter((b) => b.note.startsWith('Kept original')).length;
   setStatus(
-    `Tailored by ${res.model}. Review every line, then approve.` +
+    `Tailored by ${res.model}${res.cost ? ` (about $${res.cost.toFixed(3)})` : ''}. Review every line, then approve.` +
       (reverted ? ` ${reverted} rewrite${reverted === 1 ? '' : 's'} broke a rule and ${reverted === 1 ? 'was' : 'were'} put back to your original (highlighted).` : '')
   );
   renderReview();
@@ -291,6 +296,13 @@ $('allow').addEventListener('click', () => {
   });
 });
 $('retry').addEventListener('click', runTailor);
+
+// The cover letter page for the same application, next to this tab.
+$('letter').addEventListener('click', async () => {
+  const here = await chrome.tabs.getCurrent();
+  const params = new URLSearchParams({ url: session.posting.url, tab: String(session.tabId) });
+  chrome.tabs.create({ url: chrome.runtime.getURL('letter/letter.html?' + params), index: here ? here.index + 1 : undefined });
+});
 
 async function init() {
   const key = 'tailor:' + sid;
