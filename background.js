@@ -318,6 +318,25 @@ async function writeLetter(msg) {
   return { ok: true, text, letter: res.letter, flags, model: res.model, cost: (res.cost || 0) + (job.cost || 0), tone, length, companyResearched: !!company.updatedAt || JobScriptStorage.COMPANY_SECTIONS.some((s) => company[s].length) };
 }
 
+// From the side panel: open the cover letter page or the company profile for this tab's job.
+// The posting is saved first, so both pages have it even before a fill.
+async function openResearchPage(sender, page) {
+  const tab = sender.tab;
+  let posting = null;
+  try {
+    posting = await savePostingFor(tab.id, tab.url);
+  } catch (e) {
+    /* the page may still open with what's saved */
+  }
+  posting = posting || (await JobScriptStorage.getPosting(tab.url));
+  if (!posting) return { ok: false, error: 'No job posting found on this page.' };
+  const target = page === 'company'
+    ? `company/company.html?name=${encodeURIComponent(posting.company || '')}&domain=${encodeURIComponent(posting.companyDomain || '')}`
+    : `letter/letter.html?url=${encodeURIComponent(tab.url)}&tab=${tab.id}`;
+  await chrome.tabs.create({ url: chrome.runtime.getURL(target), index: tab.index + 1, openerTabId: tab.id });
+  return { ok: true };
+}
+
 // "Add to application" on the cover letter page: the application's tab (the one the page was
 // opened from, if it's still on that application) gets the letter in its cover letter field.
 async function letterIntoTab(msg) {
@@ -453,6 +472,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'fill-self') {
     if (!isOwnContentScript(sender)) return false;
     fillTab(sender.tab.id).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not fill this page.' }));
+    return true;
+  }
+  if (msg.type === 'letter-open' || msg.type === 'company-open') {
+    if (!isOwnContentScript(sender)) return false;
+    openResearchPage(sender, msg.type === 'company-open' ? 'company' : 'letter').then(sendResponse, () => sendResponse({ ok: false, error: 'Could not open that page.' }));
     return true;
   }
   if (msg.type === 'open-tracker') {
