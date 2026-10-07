@@ -2868,7 +2868,7 @@
       // leaves the floating button.
       // (Frames without a form return null below and show nothing.)
       if (collectFields(root).length) {
-        globalThis.JobScriptPanel.showLauncher(openPanel);
+        offerLauncher();
         globalThis.JobScriptPanel.open();
       }
       const first = await attachResumeFirst(root, profile, resume);
@@ -2951,7 +2951,7 @@
     watchSteps();
     if (session.learning) watchAnswersWhileLearning();
     session.note = stepNote(stepFields.length);
-    globalThis.JobScriptPanel.showLauncher(openPanel);
+    offerLauncher();
     renderPanel();
   }
 
@@ -2968,14 +2968,35 @@
     return null;
   }
 
+  // The floating button, unless you turned it off on the options page.
+  let buttonOn = true;
+  let launcherWanted = false; // this page has a form or posting (or a fill ran)
+
+  function offerLauncher() {
+    launcherWanted = true;
+    if (buttonOn) globalThis.JobScriptPanel.showLauncher(openPanel);
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.panelSettings) return;
+    buttonOn = !changes.panelSettings.newValue || changes.panelSettings.newValue.showButton !== false;
+    if (!buttonOn) globalThis.JobScriptPanel.hideLauncher();
+    else if (launcherWanted) offerLauncher();
+  });
+
   async function initLauncher() {
+    try {
+      buttonOn = (await S.getPanelSettings()).showButton;
+    } catch (e) {
+      /* keep the default */
+    }
     let kind = null;
     for (const end = Date.now() + LAUNCHER_WAIT_MS; !kind && Date.now() < end; ) {
       kind = pageKind();
       if (!kind) await sleep(500);
     }
     if (!kind || session) return; // a fill (or a learned site) already set up the panel
-    globalThis.JobScriptPanel.showLauncher(openPanel);
+    offerLauncher();
     if (kind !== 'application') return;
     let settings;
     try {
@@ -2983,17 +3004,17 @@
     } catch (e) {
       return;
     }
-    if (settings.autoShow && !session && !globalThis.JobScriptPanel.isOpen()) renderIdle();
+    if (settings.autoShow && !session && !globalThis.JobScriptPanel.isOpen()) openPanel();
   }
 
   globalThis.__jobscriptFill = fillPage;
   globalThis.__jobscriptJobPosting = jobPosting;
   globalThis.__jobscriptCoverLetter = coverLetterFromPage;
-  autoStart();
-  initLauncher();
-})();
   // One line so you can tell JobScript is running here, even with nothing else to show.
   // The platform's name or the site's host only; never anything from your profile.
   const platform = currentSite() ? currentSite().name : location.hostname;
   console.info(`[JobScript] loaded on ${platform}`);
 
+  autoStart();
+  initLauncher();
+})();
