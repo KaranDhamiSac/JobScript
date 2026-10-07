@@ -1667,7 +1667,7 @@
       if (session.lastStep && session.lastStep.length) {
         actions.push({ label: `Save last step (${session.lastStep.length})`, onClick: () => openReview(session.lastStep, 'Save your answers from the last step') });
       }
-      actions.push({ label: 'Save answers', ariaLabel: 'Save your answers on this step', onClick: () => openReview(currentAnswers(), 'Save your answers on this step') });
+      actions.push({ label: 'Save all answers', ariaLabel: 'Save all answers on this step', onClick: () => openReview(currentAnswers(), 'Save your answers on this step') });
     }
     if (hasSuggestions) actions.push({ label: 'Accept all', ariaLabel: 'Accept all suggestions', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
