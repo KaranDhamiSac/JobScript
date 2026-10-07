@@ -2568,9 +2568,57 @@
 
   // The job posting for tailoring. Lever's /apply page has no description, so fetch the posting
   // page (same site) and read it from there.
+  // The company's own website, for company research: the hiring organization's URL in JSON-LD,
+  // else a "company website" or logo link on the posting. Job boards, social networks and the
+  // ATS itself don't count. Returns a bare host like "example.com", or ''.
+  const NOT_COMPANY_HOST = /(^|\.)(greenhouse\.io|lever\.co|ashbyhq\.com|smartrecruiters\.com|myworkdayjobs\.com|myworkdaysite\.com|workday\.com|icims\.com|successfactors\.(com|eu)|sapsf\.(com|eu)|taleo\.net|oraclecloud\.com|ultipro\.(com|ca)|saashr\.com|joinhandshake\.com|linkedin\.com|indeed\.com|glassdoor\.com|ziprecruiter\.com|twitter\.com|x\.com|facebook\.com|instagram\.com|youtube\.com|tiktok\.com|github\.com|google\.com|apple\.com|bit\.ly|medium\.com)$/i;
+
+  function companyHost(href) {
+    try {
+      const u = new URL(href, location.href);
+      if (!/^https?:$/.test(u.protocol) || NOT_COMPANY_HOST.test(u.hostname) || u.hostname === location.hostname) return '';
+      return u.hostname.toLowerCase().replace(/^www\./, '');
+    } catch (e) {
+      return '';
+    }
+  }
+
+  function companyDomain(doc) {
+    for (const node of doc.querySelectorAll('script[type="application/ld+json"]')) {
+      let data;
+      try {
+        data = JSON.parse(node.textContent);
+      } catch (e) {
+        continue;
+      }
+      const posting = [].concat(data, (data && data['@graph']) || []).find((d) => d && d['@type'] === 'JobPosting');
+      const org = posting && posting.hiringOrganization;
+      if (org && typeof org === 'object') {
+        for (const href of [].concat(org.sameAs || [], org.url || [])) {
+          const host = companyHost(href);
+          if (host) return host;
+        }
+      }
+    }
+    for (const a of doc.querySelectorAll('a[href]')) {
+      const text = clean(a.textContent) + ' ' + (a.getAttribute('aria-label') || '') + ' ' + (typeof a.className === 'string' ? a.className : '');
+      const logo = a.querySelector('img[alt*="logo" i], img[class*="logo" i]');
+      if (!logo && !/company (web)?site|our website|visit (our )?website|homepage|home page|\blogo\b/i.test(text)) continue;
+      const host = companyHost(a.getAttribute('href'));
+      if (host) return host;
+    }
+    // A careers page on the company's own site (careers.example.com).
+    const here = location.hostname.toLowerCase();
+    if (doc === document && !NOT_COMPANY_HOST.test(here) && !/^(localhost|[\d.]+)$/.test(here)) {
+      return here.replace(/^(www|careers?|jobs|apply|work|join)\./, '');
+    }
+    return '';
+  }
+
   async function jobPosting() {
     const { title, company } = titleAndCompany();
     let description = '';
+    let domain = '';
     // On an /apply page (Ashby: /application) the posting is on the page without it; read it
     // from there first.
     if (/\/(apply|application)\/?$/.test(location.pathname)) {
@@ -2578,10 +2626,12 @@
         const res = await fetch(location.href.replace(/\/(apply|application)\/?(\?.*)?$/, ''), { credentials: 'same-origin' });
         const doc = new DOMParser().parseFromString(await res.text(), 'text/html');
         description = descriptionFrom(doc);
+        domain = companyDomain(doc);
       } catch (e) {
         /* fall back to this page */
       }
     }
+    if (!domain) domain = companyDomain(document);
     if (!description) description = descriptionFrom(document);
     if (!description) description = document.body.innerText;
     const site = currentSite();
@@ -2590,6 +2640,7 @@
       company,
       url: location.href,
       site: site ? site.name : location.hostname,
+      companyDomain: domain,
       description: description.replace(/\n{3,}/g, '\n\n').slice(0, 20000),
       hasForm: collectFields(findRoot().root).length > 0,
     };
