@@ -7,6 +7,7 @@
 //   JobScriptPanel.render({ summary, note, items, onSelect })
 //   items: [{ id, category, label, status: 'filled'|'suggested'|'needs', detail, required,
 //             draft, actions: [{ label, primary, onClick }] }]
+//   footerActions (optional): [{ label, ariaLabel, onClick }], shown as links under the list
 //   review (optional, replaces the list): { title, rows, onSave, onCancel }
 //     rows: [{ id, label, value, checked, note, dateChoices: { choices: [{ rule, label }], selected } }]
 //     onSave([{ id, dateRule }]) gets the ticked rows.
@@ -39,6 +40,7 @@
     .count { display: inline-flex; align-items: center; gap: 5px; font-weight: 600; }
     .note { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
     .note:empty { display: none; }
+    .fill-summary { color: var(--fg); font-weight: 600; }
     .toolbar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
     .toolbar label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
     .toolbar .spacer { flex: 1; }
@@ -66,6 +68,15 @@
     .btn:disabled { opacity: .5; cursor: default; }
     .collapsed .body { display: none; }
     .empty { padding: 12px; color: var(--muted); }
+    .launcher {
+      display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: none; border-radius: 999px;
+      background: #2563eb; color: #fff; font: 600 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      box-shadow: 0 6px 18px rgba(0,0,0,.25); cursor: pointer;
+    }
+    .launcher:hover { background: #1d4ed8; }
+    .footer { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 8px 12px; border-top: 1px solid var(--border); }
+    .footer button { background: none; border: none; padding: 0; color: var(--accent); font-size: 12px; }
+    .footer button:hover { text-decoration: underline; }
     .review { flex: 1; min-height: 0; display: flex; flex-direction: column; }
     .review-title { padding: 8px 12px 2px; font-weight: 600; }
     .row { display: grid; grid-template-columns: 18px 1fr; gap: 2px 6px; padding: 6px 12px; }
@@ -78,6 +89,9 @@
   let host = null;
   let shadow = null;
   let state = null;
+  let mode = null; // 'panel' | 'launcher' | null (nothing on the page)
+  let onLaunch = null; // set by showLauncher(): what the floating button does
+  let dismissed = false; // you closed the panel; updates wait until you open it again
   const ui = { collapsed: false, hideFilled: false, closedCats: new Set() };
 
   function el(tag, props, children) {
@@ -105,20 +119,45 @@
   }
 
   function ensureHost() {
-    if (host && host.isConnected) return;
-    host = document.createElement('jobscript-panel');
+    if (!host || !host.isConnected) {
+      host = document.createElement('jobscript-panel');
+      shadow = host.attachShadow({ mode: 'closed' });
+      applyStyles(shadow);
+      document.documentElement.appendChild(host);
+    }
     // CSSOM (not a style attribute) so strict page CSPs don't block it; !important beats page CSS.
-    const pin = { all: 'initial', position: 'fixed', top: '12px', right: '12px', 'z-index': '2147483647', display: 'block' };
+    // The panel sits top right, the floating button bottom right.
+    const pin = { all: 'initial', position: 'fixed', 'z-index': '2147483647', display: 'block' };
+    Object.assign(pin, mode === 'launcher' ? { bottom: '16px', right: '16px', top: 'auto' } : { top: '12px', right: '12px', bottom: 'auto' });
     for (const [k, v] of Object.entries(pin)) host.style.setProperty(k, v, 'important');
-    shadow = host.attachShadow({ mode: 'closed' });
-    applyStyles(shadow);
-    document.documentElement.appendChild(host);
   }
 
-  function close() {
+  function remove() {
     if (host) host.remove();
     host = null;
     shadow = null;
+    mode = null;
+  }
+
+  // Closing the panel leaves the floating button, if there is one.
+  function close() {
+    dismissed = true;
+    if (onLaunch) drawLauncher();
+    else remove();
+  }
+
+  // The floating "JobScript" button. A real button with a text label, so you, a screen reader
+  // or a browser agent can find it by reading the page.
+  function drawLauncher() {
+    mode = 'launcher';
+    ensureHost();
+    const b = el('button', { class: 'launcher', type: 'button', text: 'JobScript', 'aria-label': 'Open JobScript panel', title: 'Open JobScript panel' });
+    b.addEventListener('click', trusted(() => {
+      dismissed = false;
+      onLaunch();
+    }));
+    shadow.replaceChildren(b);
+    ensureStyles();
   }
 
   // Only react to real clicks from the user, never to events a page script dispatched.
@@ -134,7 +173,7 @@
     const node = el('div', { class: 'item ' + item.status });
     node.appendChild(el('span', { class: 'dot', title: STATUS_TEXT[item.status] || '' }));
     node.appendChild(
-      el('button', { class: 'label', text: item.label, title: item.label, onclick: trusted(() => state.onSelect(item.id)) })
+      el('button', { class: 'label', text: item.label, title: item.label, 'aria-label': 'Go to field: ' + item.label, onclick: trusted(() => state.onSelect(item.id)) })
     );
     const detailBits = [STATUS_TEXT[item.status]];
     if (item.detail) detailBits.push(item.detail);
@@ -148,7 +187,7 @@
     if (item.actions && item.actions.length) {
       const bar = el('div', { class: 'actions' });
       for (const a of item.actions) {
-        const b = el('button', { class: 'btn' + (a.primary ? ' primary' : ''), text: a.label });
+        const b = el('button', { class: 'btn' + (a.primary ? ' primary' : ''), text: a.label, 'aria-label': `${a.label}: ${item.label}` });
         b.addEventListener(
           'click',
           trusted(async () => {
@@ -169,13 +208,14 @@
 
   function draw() {
     if (!state) return;
+    mode = 'panel';
     ensureHost();
     const FM = globalThis.FieldMap;
     const items = state.items;
     const counts = { filled: 0, suggested: 0, needs: 0 };
     for (const it of items) counts[it.status] = (counts[it.status] || 0) + 1;
 
-    const panel = el('div', { class: 'panel' + (ui.collapsed ? ' collapsed' : '') });
+    const panel = el('div', { class: 'panel' + (ui.collapsed ? ' collapsed' : ''), role: 'complementary', 'aria-label': 'JobScript' });
     panel.appendChild(
       el('header', null, [
         el('h1', { text: 'JobScript' }),
@@ -183,9 +223,11 @@
           class: 'icon',
           text: ui.collapsed ? '▸' : '▾',
           title: ui.collapsed ? 'Expand' : 'Collapse',
+          'aria-label': ui.collapsed ? 'Expand JobScript panel' : 'Collapse JobScript panel',
+          'aria-expanded': String(!ui.collapsed),
           onclick: trusted(() => { ui.collapsed = !ui.collapsed; draw(); }),
         }),
-        el('button', { class: 'icon', text: '×', title: 'Close', onclick: trusted(close) }),
+        el('button', { class: 'icon', text: '×', title: 'Close', 'aria-label': 'Close JobScript panel', onclick: trusted(close) }),
       ])
     );
 
@@ -202,6 +244,8 @@
     panel.appendChild(summary);
 
     const body = el('div', { class: 'body' });
+    // Plain-text result of the last fill ("Filled 12 of 15. Needs you: …"), read aloud on change.
+    body.appendChild(el('div', { class: 'note fill-summary', role: 'status', 'aria-live': 'polite', text: state.summaryText || '' }));
     body.appendChild(el('div', { class: 'note', text: state.note || '' }));
     if (state.review) {
       body.appendChild(drawReview(state.review));
@@ -222,7 +266,7 @@
     toolbar.appendChild(el('label', null, [hide, document.createTextNode('Hide filled')]));
     toolbar.appendChild(el('span', { class: 'spacer' }));
     for (const a of state.toolbarActions || []) {
-      const b = el('button', { class: 'btn' + (a.primary ? ' primary' : ''), text: a.label });
+      const b = el('button', { class: 'btn' + (a.primary ? ' primary' : ''), text: a.label, 'aria-label': a.ariaLabel || a.label });
       b.addEventListener('click', trusted(async () => { b.disabled = true; try { await a.onClick(); } finally { b.disabled = false; } }));
       toolbar.appendChild(b);
     }
@@ -238,6 +282,8 @@
       const section = el('div', { class: 'cat' });
       section.appendChild(
         el('button', {
+          'aria-expanded': String(open),
+          'aria-label': `${FM.categories.labels[cat]} (${catItems.length} fields)`,
           onclick: trusted(() => { open ? ui.closedCats.add(cat) : ui.closedCats.delete(cat); draw(); }),
         }, [el('span', { class: 'caret', text: open ? '▾' : '▸' }), document.createTextNode(`${FM.categories.labels[cat]} (${catItems.length})`)])
       );
@@ -245,6 +291,15 @@
       list.appendChild(section);
     }
     body.appendChild(list);
+    if (state.footerActions && state.footerActions.length) {
+      const footer = el('div', { class: 'footer' });
+      for (const a of state.footerActions) {
+        const b = el('button', { type: 'button', text: a.label, 'aria-label': a.ariaLabel || a.label });
+        b.addEventListener('click', trusted(() => a.onClick()));
+        footer.appendChild(b);
+      }
+      body.appendChild(footer);
+    }
     panel.appendChild(body);
 
     // Re-rendering rebuilds the list; keep the user's scroll position.
@@ -283,7 +338,7 @@
       list.appendChild(row);
     }
     if (!rows.length) list.appendChild(el('div', { class: 'empty', text: 'No answers to save on this step.' }));
-    const save = el('button', { class: 'btn primary', text: 'Save selected' });
+    const save = el('button', { class: 'btn primary', text: 'Save selected', 'aria-label': 'Save the selected answers' });
     save.addEventListener('click', trusted(async () => {
       save.disabled = true;
       try {
@@ -294,19 +349,34 @@
     }));
     bar.appendChild(el('span', { text: `${review.rows.length} answer${review.rows.length === 1 ? '' : 's'}` }));
     bar.appendChild(el('span', { class: 'spacer' }));
-    bar.appendChild(el('button', { class: 'btn', text: 'Cancel', onclick: trusted(() => review.onCancel()) }));
+    bar.appendChild(el('button', { class: 'btn', text: 'Cancel', 'aria-label': 'Cancel saving answers', onclick: trusted(() => review.onCancel()) }));
     bar.appendChild(save);
     wrap.append(el('div', { class: 'review-title', text: review.title }), bar, list);
     return wrap;
   }
 
   globalThis.JobScriptPanel = {
+    // Updates the panel. After you close it, the update waits behind the floating button.
     render(next) {
       state = next;
+      if (dismissed && onLaunch) {
+        if (mode !== 'launcher') drawLauncher();
+        return;
+      }
       draw();
     },
+    // Opens the panel even if you closed it (you asked for a fill, say).
+    open() {
+      dismissed = false;
+      draw();
+    },
+    // Puts the floating button on the page; onOpen runs when you click it.
+    showLauncher(onOpen) {
+      onLaunch = onOpen;
+      if (mode !== 'panel') drawLauncher();
+    },
     isOpen() {
-      return !!(host && host.isConnected);
+      return mode === 'panel' && !!(host && host.isConnected);
     },
     close,
   };
