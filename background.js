@@ -79,11 +79,28 @@ async function fillTab(tabId, opts) {
     tailoredFileName: tailored ? tailored.name : '',
     folder: opts && opts.folder,
   });
+  // Keep the full posting with the entry, in case it's taken down later. Not awaited: reading
+  // the posting can take a moment and the popup is waiting for this summary.
+  savePostingFor(tabId, withJob.url).catch(() => {});
 
   // Tab-scoped badge; the browser clears it when the tab navigates.
   await chrome.action.setBadgeBackgroundColor({ tabId, color: summary.needsAttention ? '#ca8a04' : '#16a34a' });
   await chrome.action.setBadgeText({ tabId, text: String(summary.filled) });
   return summary;
+}
+
+// The posting in this tab (the frame with the form first, then the longest description), saved
+// under the application's address.
+async function readPosting(tabId) {
+  const postings = await callWithInjection(tabId, '__jobscriptJobPosting');
+  if (!postings.length) return null;
+  return postings.sort((a, b) => (b.hasForm - a.hasForm) || b.description.length - a.description.length)[0];
+}
+
+async function savePostingFor(tabId, appUrl) {
+  const posting = await readPosting(tabId);
+  if (!posting || !posting.description) return null;
+  return JobScriptStorage.savePosting(Object.assign({}, posting, { url: appUrl || posting.url }));
 }
 
 async function activeTabId() {
@@ -155,15 +172,14 @@ async function parseResumeWithAi(msg) {
 // page: 'tailor' (Claude tailoring) or 'job' (job description + your own resume).
 async function startTailor(tabId, page) {
   const target = page === 'job' ? 'job/job.html' : 'tailor/tailor.html';
-  let postings;
+  let posting;
   try {
-    postings = await callWithInjection(tabId, '__jobscriptJobPosting');
+    posting = await readPosting(tabId);
   } catch (err) {
     return { ok: false, error: 'JobScript cannot read this page.' };
   }
-  if (!postings.length) return { ok: false, error: 'No job posting found on this page.' };
-  // Prefer the frame with the application form, then the longest description.
-  const posting = postings.sort((a, b) => (b.hasForm - a.hasForm) || b.description.length - a.description.length)[0];
+  if (!posting) return { ok: false, error: 'No job posting found on this page.' };
+  JobScriptStorage.savePosting(posting).catch(() => {});
   const sid = crypto.randomUUID();
   await chrome.storage.session.set({ ['tailor:' + sid]: { tabId, posting, createdAt: Date.now() } });
   const tab = await chrome.tabs.get(tabId);
