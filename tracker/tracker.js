@@ -77,6 +77,55 @@
     return b;
   }
 
+  // Saved postings and company profiles, keyed like storage ("posting:<application key>",
+  // "company:<company key>"), so each row can link to them.
+  let research = { postings: new Map(), companies: new Map() };
+
+  async function loadResearch() {
+    const all = await chrome.storage.local.get(null);
+    const postings = new Map();
+    const companies = new Map();
+    for (const [k, v] of Object.entries(all)) {
+      if (k.startsWith('posting:')) postings.set(k.slice(8), v);
+      else if (k.startsWith('company:')) companies.set(k.slice(8), S.cleanCompany(v));
+    }
+    research = { postings, companies };
+  }
+
+  function pageUrl(path, query) {
+    return chrome.runtime.getURL(path) + '?' + new URLSearchParams(query).toString();
+  }
+
+  // Company name, with its profile (mission as a tooltip) or a link to research it.
+  function companyCell(app) {
+    const posting = research.postings.get(S.applicationKey(app.url));
+    const name = app.company || (posting && posting.company) || '';
+    const profile = research.companies.get(S.companyKey(name));
+    const href = pageUrl('company/company.html', { name, domain: (profile && profile.domain) || (posting && posting.companyDomain) || '' });
+    const has = profile && S.COMPANY_SECTIONS.some((sec) => profile[sec].length);
+    const link = el('a', { href, target: '_blank', rel: 'noopener', class: 'small', text: has ? 'Profile' : 'Research' });
+    if (has && profile.mission[0]) link.title = 'Mission: ' + profile.mission[0].text;
+    return el('div', {}, [el('div', { text: name || 'Unknown' }), link]);
+  }
+
+  function letterCell(app) {
+    const href = pageUrl('letter/letter.html', { url: app.url });
+    return el('a', { href, target: '_blank', rel: 'noopener', class: app.coverLetterAt ? '' : 'small', text: app.coverLetterAt ? 'Saved' : 'Write' });
+  }
+
+  // The posting as JobScript saved it when you filled the application, as a text file.
+  function postingCell(app) {
+    const posting = research.postings.get(S.applicationKey(app.url));
+    if (!posting) return el('span', { class: 'muted', text: '—' });
+    const b = el('button', { class: 'link', type: 'button', text: 'Saved', title: `Saved ${shortDate(posting.savedAt)}` });
+    b.addEventListener('click', () => {
+      const text = [posting.title, posting.company, posting.url, `Saved ${posting.savedAt}`, '', posting.description].join('\n');
+      const part = (s) => String(s || '').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '');
+      saveBlob(new Blob([text], { type: 'text/plain' }), `${part(posting.company) || 'Job'}_${part(posting.title) || 'posting'}.txt`);
+    });
+    return b;
+  }
+
   function newestFirst(list) {
     return list.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   }
@@ -89,11 +138,13 @@
       body.append(
         el('tr', {}, [
           el('td', { text: shortDate(app.createdAt) }),
-          el('td', { text: app.company || 'Unknown' }),
+          el('td', {}, [companyCell(app)]),
           el('td', {}, [roleLink(app)]),
           el('td', { class: 'id', text: app.jobId || '', title: app.jobId || '' }),
           el('td', {}, [statusSelect(app)]),
           el('td', {}, [resumeCell(app)]),
+          el('td', {}, [letterCell(app)]),
+          el('td', {}, [postingCell(app)]),
         ])
       );
     }
@@ -309,13 +360,15 @@
   }
 
   async function load() {
-    [apps, { dailyGoal: goal }] = await Promise.all([S.getApplications(), S.getTrackerSettings()]);
+    [apps, { dailyGoal: goal }] = await Promise.all([S.getApplications(), S.getTrackerSettings(), loadResearch()]);
     render();
   }
 
   // Redraw when applications or the goal change, e.g. a fill in another tab.
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && (changes.applications || changes.trackerSettings)) load();
+    if (area !== 'local') return;
+    const keys = Object.keys(changes);
+    if (changes.applications || changes.trackerSettings || keys.some((k) => k.startsWith('posting:') || k.startsWith('company:'))) load();
   });
 
   // Roll over to a new day if the page stays open past midnight.
