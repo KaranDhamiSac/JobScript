@@ -1672,6 +1672,7 @@
     if (hasSuggestions) actions.push({ label: 'Accept all', ariaLabel: 'Accept all suggestions', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
       summaryText: fillSummaryText(fields),
+      warning: conflictWarning(),
       details: companyDetails(),
       note: session.note,
       footerActions: footerActions(),
@@ -1738,11 +1739,44 @@
     renderPanel();
   });
 
+  // Other job-autofill extensions put their own panels on application pages, and may change the
+  // fields JobScript fills (or fill them first). Their UI is found by its tag, id or class at the
+  // top of the page; nothing is read from it.
+  const OTHER_AUTOFILL = [
+    ['Jobright', /jobright/i],
+    ['Simplify', /simplify[-_]?(jobs|copilot|autofill|root|extension)|\bsimplify\b/i],
+    ['Teal', /\bteal[-_]?(hq|extension|root|autofill)|tealhq/i],
+    ['Huntr', /\bhuntr/i],
+    ['LazyApply', /lazy[-_]?apply/i],
+    ['Careerflow', /careerflow/i],
+    ['JobCopilot', /job[-_]?copilot/i],
+    ['an autofill extension', /\b(auto[-_]?apply|autofill[-_](extension|root|panel|widget))\b/i],
+  ];
+
+  function otherAutofill() {
+    const nodes = [];
+    for (const root of [document.documentElement, document.body]) if (root) nodes.push(...root.children);
+    nodes.push(...document.querySelectorAll('body > div > iframe, body > iframe'));
+    for (const n of nodes) {
+      if (/^JOBSCRIPT-/.test(n.tagName)) continue;
+      const sig = [n.tagName, n.id, typeof n.className === 'string' ? n.className : '', n.getAttribute('name') || '', n.getAttribute('title') || ''].join(' ');
+      const hit = OTHER_AUTOFILL.find(([, re]) => re.test(sig));
+      if (hit) return hit[0];
+    }
+    return '';
+  }
+
+  function conflictWarning() {
+    const name = otherAutofill();
+    return name ? `Another autofill extension is active${/^an /.test(name) ? '' : ` (${name})`} and may change fields JobScript fills.` : '';
+  }
+
   // The panel before JobScript has filled anything on this page.
   function renderIdle() {
     globalThis.JobScriptPanel.render({
       note: idleNote || 'Nothing filled on this page yet. ' + siteWarning() + DEFAULT_NOTE,
       summaryText: '',
+      warning: conflictWarning(),
       details: companyDetails(),
       emptyText: 'Press “Fill this page” to fill this form from your profile.',
       toolbarActions: [{ label: 'Fill this page', ariaLabel: 'Fill this page', primary: true, onClick: fillFromPanel }],
