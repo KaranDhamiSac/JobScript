@@ -73,7 +73,8 @@ Claude's answers only appear as suggestions in JobScript's side panel. None are 
 
 - It does not sell, rent or share your data with anyone.
 - It does not use your data for advertising, profiling or any purpose other than filling forms you choose to fill.
-- It does not collect browsing history. It runs only on the job sites listed in its manifest (Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters, SuccessFactors, Taleo, Oracle Recruiting, UKG and Handshake), on another page when you explicitly click Fill there, and on sites you chose to teach with Learn mode and gave access to (one site at a time, asked for when you click "Learn this site's steps"). On those sites it only reads the form and shows its panel; it fills nothing until you click.
+- It does not collect browsing history. It runs only on the job sites listed in its manifest (Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters, SuccessFactors, Taleo, Oracle Recruiting, UKG and Handshake), on another page when you explicitly click Fill there, and on sites you chose to teach with Learn mode and gave access to (one site at a time, asked for when you click "Learn this site's steps"). On those sites it only reads the form and shows its panel or its floating button; it fills nothing until you click.
+- It never puts your profile data in the page's DOM attributes or JavaScript globals. The panel and its button live in a closed shadow root that page scripts can't open; the panel's summary line shows field labels from the form, not your answers.
 - Learn mode and saving answers never record uploads, checkboxes, demographic or reference questions, or sensitive questions (such as Social Security number or date of birth).
 
 ## Your control
