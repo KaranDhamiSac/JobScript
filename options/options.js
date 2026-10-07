@@ -628,6 +628,20 @@ for (const m of S.AI_MODELS) aiModel.append(new Option(m.label, m.id));
 // ---------------------------------------------------------------------------
 // Saving answers
 
+// Company research mode and cover letter tone and length.
+const letterTone = document.getElementById('letter-tone');
+const letterLength = document.getElementById('letter-length');
+S.getResearchSettings().then((s) => {
+  document.querySelector(`input[name="research-mode"][value="${s.mode}"]`).checked = true;
+  letterTone.value = s.tone;
+  letterLength.value = s.length;
+});
+for (const r of document.querySelectorAll('input[name="research-mode"]')) {
+  r.addEventListener('change', () => S.saveResearchSettings({ mode: r.value }));
+}
+letterTone.addEventListener('change', () => S.saveResearchSettings({ tone: letterTone.value }));
+letterLength.addEventListener('change', () => S.saveResearchSettings({ length: letterLength.value }));
+
 const autoShow = document.getElementById('auto-show');
 S.getPanelSettings().then((s) => {
   autoShow.checked = s.autoShow;

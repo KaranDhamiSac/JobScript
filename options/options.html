@@ -152,6 +152,32 @@
       </section>
     </form>
 
+    <section id="research-section">
+      <h2>Company research and cover letters</h2>
+      <p class="muted">Used by “Company profile” and “Write cover letter” in the side panel, the tracker and Tailor &amp; Fill. They need your Anthropic API key (under AI answers below).</p>
+      <fieldset class="plain">
+        <legend>Research companies with</legend>
+        <label class="check"><input type="radio" name="research-mode" value="website"> Their own website: reads About, Mission, Values, Careers and Culture pages. Asks to read that one site each time, then gives the access back.</label>
+        <label class="check"><input type="radio" name="research-mode" value="search"> Web search: also finds recent news. Costs more; the company page shows the estimate before it runs.</label>
+      </fieldset>
+      <div class="grid">
+        <label>Cover letter tone
+          <select id="letter-tone">
+            <option value="professional">Professional</option>
+            <option value="warm">Warm</option>
+            <option value="concise">Concise</option>
+          </select>
+        </label>
+        <label>Cover letter length
+          <select id="letter-length">
+            <option value="short">Short (about 150 words)</option>
+            <option value="250">About 250 words</option>
+            <option value="full">Full page</option>
+          </select>
+        </label>
+      </div>
+    </section>
+
     <section id="panel-section">
       <h2>Side panel</h2>
       <p class="muted">On job sites JobScript supports, a small “JobScript” button sits at the bottom right of application pages. It opens the side panel, which can do everything the toolbar popup does.</p>
