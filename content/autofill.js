@@ -1629,6 +1629,25 @@
     return c;
   }
 
+  // "Filled 12 of 15. Needs you: Why do you want to work here?, Referral." Field labels only,
+  // never your answers, so it's safe to show (and for an agent to read) on the page.
+  const SUMMARY_MAX_LABELS = 8;
+
+  function fillSummaryText(fields) {
+    if (!fields.length) return '';
+    const c = counts();
+    const total = c.filled + c.suggested + c.needs + c.alreadyFilled;
+    let text = `Filled ${c.filled + c.alreadyFilled} of ${total}.`;
+    const needs = fields.filter((f) => f.status === 'needs' && !f.prefilled).map((f) => f.label);
+    if (needs.length) {
+      const shown = needs.slice(0, SUMMARY_MAX_LABELS).join(', ');
+      const more = needs.length > SUMMARY_MAX_LABELS ? `, and ${needs.length - SUMMARY_MAX_LABELS} more` : '';
+      text += ` Needs you: ${shown}${more}.`;
+    }
+    if (c.suggested) text += ` ${c.suggested} suggestion${c.suggested === 1 ? '' : 's'} to review.`;
+    return text;
+  }
+
   function renderPanel() {
     if (!session) return;
     const fields = [...registry.values()]
@@ -1651,6 +1670,7 @@
     }
     if (hasSuggestions) actions.push({ label: 'Accept all', ariaLabel: 'Accept all suggestions', primary: true, onClick: acceptAllSuggestions });
     globalThis.JobScriptPanel.render({
+      summaryText: fillSummaryText(fields),
       note: session.note,
       footerActions: footerActions(),
       review: session.review,
