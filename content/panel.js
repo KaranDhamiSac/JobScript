@@ -7,6 +7,7 @@
 //   JobScriptPanel.render({ summary, note, items, onSelect })
 //   items: [{ id, category, label, status: 'filled'|'suggested'|'needs', detail, required,
 //             draft, actions: [{ label, primary, onClick }] }]
+//   emptyText (optional): shown instead of "No fields found." when items is empty
 //   footerActions (optional): [{ label, ariaLabel, onClick }], shown as links under the list
 //   review (optional, replaces the list): { title, rows, onSave, onCancel }
 //     rows: [{ id, label, value, checked, note, dateChoices: { choices: [{ rule, label }], selected } }]
@@ -274,7 +275,8 @@
 
     const list = el('div', { class: 'list' });
     const visible = items.filter((it) => !(ui.hideFilled && it.status === 'filled'));
-    if (!visible.length) list.appendChild(el('div', { class: 'empty', text: items.length ? 'Everything is filled.' : 'No fields found.' }));
+    const emptyText = items.length ? 'Everything is filled.' : state.emptyText || 'No fields found.';
+    if (!visible.length) list.appendChild(el('div', { class: 'empty', text: emptyText }));
     for (const cat of FM.categories.order) {
       const catItems = visible.filter((it) => it.category === cat);
       if (!catItems.length) continue;
