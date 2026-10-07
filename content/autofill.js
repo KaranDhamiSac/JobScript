@@ -2992,3 +2992,8 @@
   autoStart();
   initLauncher();
 })();
+  // One line so you can tell JobScript is running here, even with nothing else to show.
+  // The platform's name or the site's host only; never anything from your profile.
+  const platform = currentSite() ? currentSite().name : location.hostname;
+  console.info(`[JobScript] loaded on ${platform}`);
+
