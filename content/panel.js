@@ -8,6 +8,7 @@
 //   items: [{ id, category, label, status: 'filled'|'suggested'|'needs', detail, required,
 //             draft, actions: [{ label, primary, onClick }] }]
 //   emptyText (optional): shown instead of "No fields found." when items is empty
+//   details (optional): { title, lines: [strings] }, a short read-only block (the company)
 //   footerActions (optional): [{ label, ariaLabel, onClick }], shown as links under the list
 //   review (optional, replaces the list): { title, rows, onSave, onCancel }
 //     rows: [{ id, label, value, checked, note, dateChoices: { choices: [{ rule, label }], selected } }]
@@ -42,6 +43,9 @@
     .note { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
     .note:empty { display: none; }
     .fill-summary { color: var(--fg); font-weight: 600; }
+    .details { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12px; }
+    .details h2 { margin: 0 0 4px; font-size: 12px; font-weight: 700; }
+    .details p { margin: 2px 0; color: var(--muted); overflow-wrap: anywhere; }
     .toolbar { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; padding: 6px 12px; border-bottom: 1px solid var(--border); color: var(--muted); }
     .toolbar label { display: inline-flex; gap: 5px; align-items: center; cursor: pointer; }
     .toolbar .spacer { flex: 1; }
@@ -248,6 +252,14 @@
     // Plain-text result of the last fill ("Filled 12 of 15. Needs you: …"), read aloud on change.
     body.appendChild(el('div', { class: 'note fill-summary', role: 'status', 'aria-live': 'polite', text: state.summaryText || '' }));
     body.appendChild(el('div', { class: 'note', text: state.note || '' }));
+    if (state.details && state.details.lines.length) {
+      body.appendChild(
+        el('section', { class: 'details', 'aria-label': state.details.title }, [
+          el('h2', { text: state.details.title }),
+          ...state.details.lines.map((line) => el('p', { text: line })),
+        ])
+      );
+    }
     if (state.review) {
       body.appendChild(drawReview(state.review));
       panel.appendChild(body);
