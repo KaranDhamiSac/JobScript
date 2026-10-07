@@ -132,9 +132,12 @@
     }
     if (!host.isConnected) document.documentElement.appendChild(host);
     // CSSOM (not a style attribute) so strict page CSPs don't block it; !important beats page CSS.
-    // The panel sits top right, the floating button bottom right.
+    // The panel sits top right, the floating button bottom left: bottom right is where
+    // reCAPTCHA's badge and other extensions' panels (Jobright, for one) usually are.
     const pin = { all: 'initial', position: 'fixed', 'z-index': '2147483647', display: 'block' };
-    Object.assign(pin, mode === 'launcher' ? { bottom: '16px', right: '16px', top: 'auto' } : { top: '12px', right: '12px', bottom: 'auto' });
+    Object.assign(pin, mode === 'launcher'
+      ? { bottom: '16px', left: '16px', top: 'auto', right: 'auto' }
+      : { top: '12px', right: '12px', bottom: 'auto', left: 'auto' });
     for (const [k, v] of Object.entries(pin)) host.style.setProperty(k, v, 'important');
   }
 
