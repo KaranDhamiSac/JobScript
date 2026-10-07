@@ -124,12 +124,13 @@
   }
 
   function ensureHost() {
-    if (!host || !host.isConnected) {
+    if (!host) {
       host = document.createElement('jobscript-panel');
       shadow = host.attachShadow({ mode: 'closed' });
       applyStyles(shadow);
-      document.documentElement.appendChild(host);
+      keepAttached();
     }
+    if (!host.isConnected) document.documentElement.appendChild(host);
     // CSSOM (not a style attribute) so strict page CSPs don't block it; !important beats page CSS.
     // The panel sits top right, the floating button bottom right.
     const pin = { all: 'initial', position: 'fixed', 'z-index': '2147483647', display: 'block' };
@@ -142,6 +143,35 @@
     host = null;
     shadow = null;
     mode = null;
+  }
+
+  // Some sites rebuild the whole page after it loads: Greenhouse's React app, for one,
+  // re-renders <html> when hydration fails, which throws away anything an extension added.
+  // Put the panel (or the floating button) back, contents and all, whenever that happens.
+  let watcher = null;
+  let watchedRoot = null;
+  let reattachTimer = null;
+
+  function keepAttached() {
+    if (watcher) return;
+    const check = () => {
+      if (watchedRoot !== document.documentElement) observeRoot();
+      if (!host || host.isConnected || reattachTimer) return;
+      reattachTimer = setTimeout(() => {
+        reattachTimer = null;
+        if (host && !host.isConnected && document.documentElement) document.documentElement.appendChild(host);
+      }, 50);
+    };
+    watcher = new MutationObserver(check);
+    const observeRoot = () => {
+      watcher.disconnect();
+      watchedRoot = document.documentElement;
+      watcher.observe(document, { childList: true });
+      if (watchedRoot) watcher.observe(watchedRoot, { childList: true });
+    };
+    observeRoot();
+    // Belt and braces for pages that swap nodes in ways the observer above doesn't see.
+    setInterval(check, 1000);
   }
 
   // Closing the panel leaves the floating button, if there is one.
