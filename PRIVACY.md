@@ -11,6 +11,7 @@ JobScript stores the details you enter on its options page:
 - contact details, links, skills and work-eligibility answers
 - optional demographic (EEO) answers, which default to "Decline to answer"
 - work history, education and your saved question-and-answer pairs (your "bank"), including date rules such as "2 weeks from today"
+- your saved answers per canonical question (for example "how did you hear about us", languages, a salary range or start-date rule), the different wordings each was asked in and when it was last used, and how each question wording was classified (generic, changing or job-specific). Answers to job-specific questions are never saved automatically
 - answers you save for a specific site's fields, and for sites you teach with Learn mode, the order of the form's steps and which fields each step has. These are stored per site address (for example `https://portal.example.edu`); you can see and delete them under "Saving answers" on the options page
 - up to three references: their name, company, relationship to you, email, phone, years known and whether employers may contact them. JobScript only puts these into application forms you fill; it never sends them to Claude
 - your resume PDF, and its plain text (extracted on your device when you upload it)
@@ -76,6 +77,8 @@ AI answers are **off by default**. If you turn them on and add your own Anthropi
 - your profile: name, city, links, work authorization, skills, work history, education and saved answers
 - your full resume text, with email addresses, phone numbers and street addresses removed
 - the job title and description from the page
+
+When you answer a question whose wording JobScript's rules don't recognize, and AI answers are on, it sends only that question's wording and its answer options (not your answer) to Anthropic so Claude Haiku can say whether it's generic, changing or job-specific. Each wording is sent at most once.
 
 When answering questions, JobScript never sends your email, phone number, street address, ZIP code or self-identification (EEO) answers. It also never asks the AI questions about consent, signatures, SSN, date of birth or similar sensitive topics.
 
