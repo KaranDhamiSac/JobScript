@@ -77,4 +77,15 @@ await test('custom answers get a saved date; import cleans canonical answers', a
   assert.equal(all['general.languages'].type, 'generic');
 });
 
+await test('a fill records wordings and use, creating entries for profile facts', async () => {
+  await S.noteCanonUse([{ key: 'education.gradDate', label: 'Graduation date', type: 'generic', kind: 'date', wording: 'When do you graduate?' }]);
+  await S.noteCanonUse([{ key: 'education.gradDate', wording: 'Graduation year' }, { key: 'education.gradDate', wording: 'graduation YEAR' }]);
+  const e = (await S.getCanonAnswers())['education.gradDate'];
+  assert.deepEqual(e.wordings, ['Graduation year', 'When do you graduate?']);
+  assert.equal(e.kind, 'date');
+  assert.ok(e.lastUsedAt && !e.updatedAt);
+  assert.equal(S.questionWordingKey('Do you speak Spanish?'), 'do you speak spanish');
+  assert.ok((await S.getQuestionClasses())['do you speak spanish']);
+});
+
 console.log(`\n${passed} tests passed`);
