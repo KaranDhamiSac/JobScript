@@ -186,6 +186,13 @@
       <p class="muted small">The panel only lists and fills fields when you press Fill. Showing it doesn’t fill anything.</p>
     </section>
 
+    <section id="canon-section">
+      <h2>Saved answers</h2>
+      <p class="muted">Answers JobScript reuses, one per question however a form words it. <strong>Generic</strong> answers fill automatically; <strong>changing</strong> ones (start date, salary) are suggested from their rule; <strong>job-specific</strong> ones (“Why do you want to work here?”) are never reused. Answers that live in your profile above (phone, graduation date…) are edited here too.</p>
+      <p id="canon-empty" class="muted">Nothing saved yet. Answer a question JobScript leaves for you and it shows up here.</p>
+      <div id="canon-groups"></div>
+    </section>
+
     <section id="answers-section">
       <h2>Saving answers</h2>
       <p class="muted">When you answer a question JobScript couldn’t, it offers to save the answer for next time: to your custom answers above, and for that site’s exact field. On multi-step forms, the side panel can save a whole step at once.</p>
@@ -261,6 +268,7 @@
 
   <script src="../lib/storage.js"></script>
   <script src="../lib/dateRules.js"></script>
+  <script src="../lib/canonical.js"></script>
   <script src="../lib/fieldMap.js"></script>
   <script type="module" src="options.js"></script>
 </body>

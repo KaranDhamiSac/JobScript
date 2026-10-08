@@ -744,6 +744,133 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === 'local' && changes.siteAnswers) renderSites();
 });
 
+// ---------------------------------------------------------------------------
+// Saved answers, grouped by type (see lib/canonical.js). Each shows the canonical question,
+// the wordings it was asked in, when it was last used, and its answer to edit or delete.
+
+const CANON = globalThis.JobScriptCanonical;
+const TYPE_TITLES = { generic: 'Generic: filled automatically', changing: 'Changing: suggested from a rule', job: 'Job-specific: never reused' };
+
+function shortDate(iso) {
+  return iso ? new Date(iso).toLocaleDateString() : 'never';
+}
+
+async function renderCanon() {
+  const [answers, prof] = await Promise.all([S.getCanonAnswers(), S.getProfile()]);
+  const rows = [];
+  for (const e of Object.values(answers)) {
+    const q = CANON.get(e.key);
+    const value = q && q.profile ? CANON.readProfile(prof, q.profile) : e.value;
+    if (!value && !e.rule) continue; // only seen, never answered
+    rows.push({ key: e.key, type: (q && q.type) || e.type, kind: (q && q.kind) || e.kind, label: (q && q.label) || e.label || e.key, profilePath: q && q.profile, value, rule: e.rule, wordings: e.wordings || [], lastUsedAt: e.lastUsedAt, updatedAt: e.updatedAt });
+  }
+  // Custom answers to job-specific questions: kept, but no longer reused automatically.
+  prof.customAnswers.forEach((a, index) => {
+    const c = CANON.classify(a.question);
+    if (c && c.type === 'job' && a.answer) rows.push({ customIndex: index, type: 'job', kind: 'text', label: a.question, value: a.answer, rule: '', wordings: [], lastUsedAt: '', updatedAt: a.savedAt });
+  });
+
+  const box = document.getElementById('canon-groups');
+  document.getElementById('canon-empty').hidden = rows.length > 0;
+  box.replaceChildren();
+  for (const type of ['generic', 'changing', 'job']) {
+    const group = rows.filter((r) => r.type === type).sort((a, b) => a.label.localeCompare(b.label));
+    if (!group.length) continue;
+    box.append(make('h3', '', `${TYPE_TITLES[type]} (${group.length})`));
+    const table = make('table', 'canon-table');
+    const head = make('tr');
+    for (const t of ['Question', 'Answer', 'Wordings seen', 'Last used', '']) head.append(make('th', '', t));
+    table.append(head);
+    for (const r of group) table.append(canonRow(r));
+    box.append(table);
+  }
+}
+
+function canonRow(r) {
+  const tr = make('tr');
+  const q = make('td');
+  q.append(make('div', '', r.label));
+  if (r.profilePath) q.append(make('div', 'muted small', 'In your profile'));
+  tr.append(q);
+
+  const answer = make('td');
+  const input = make('input');
+  input.type = 'text';
+  input.value = r.rule && !(r.type === 'changing' && r.kind === 'date') ? r.rule : r.value || '';
+  input.setAttribute('aria-label', `Answer to ${r.label}`);
+  answer.append(input);
+  let rule = null;
+  if (r.type === 'changing' && r.kind === 'date') {
+    rule = make('select');
+    rule.setAttribute('aria-label', `Rule for ${r.label}`);
+    for (const [v, t] of dateRuleOptions({ dateRule: r.rule })) rule.append(new Option(v ? t : 'Use the date as written', v, false, v === r.rule));
+    answer.append(rule);
+  }
+  tr.append(answer);
+
+  tr.append(make('td', 'muted small', r.wordings.length ? r.wordings.join(' · ') : '—'));
+  tr.append(make('td', 'muted small', shortDate(r.lastUsedAt)));
+
+  const actions = make('td', 'row-actions');
+  const save = make('button', 'secondary', 'Save');
+  save.type = 'button';
+  save.setAttribute('aria-label', `Save answer to ${r.label}`);
+  save.addEventListener('click', async () => {
+    const text = input.value.trim();
+    if (r.customIndex !== undefined) {
+      const p = await S.getProfile();
+      if (p.customAnswers[r.customIndex]) p.customAnswers[r.customIndex].answer = text;
+      await S.saveProfile(p);
+      location.reload(); // the custom answers list above shows it too
+      return;
+    }
+    if (r.profilePath) {
+      const p = await S.getProfile();
+      CANON.writeProfile(p, r.profilePath, CANON.parseAnswer(r.kind, text), { education: S.blankEducationEntry });
+      await S.saveProfile(p);
+      await S.saveCanonAnswer({ key: r.key, touchUpdated: true });
+      location.reload(); // the profile form above shows it too
+      return;
+    }
+    if (r.type === 'changing') {
+      const chosen = rule ? rule.value : '';
+      await S.saveCanonAnswer({ key: r.key, rule: chosen || (r.kind === 'date' ? '' : text), value: chosen || r.kind !== 'date' ? '' : CANON.parseAnswer(r.kind, text) });
+    } else {
+      await S.saveCanonAnswer({ key: r.key, value: CANON.parseAnswer(r.kind, text) });
+    }
+    renderCanon();
+  });
+  const del = make('button', 'secondary danger', 'Delete');
+  del.type = 'button';
+  del.setAttribute('aria-label', `Delete answer to ${r.label}`);
+  del.addEventListener('click', async () => {
+    if (!confirm(`Delete your saved answer to “${r.label}”?`)) return;
+    if (r.customIndex !== undefined) {
+      const p = await S.getProfile();
+      p.customAnswers.splice(r.customIndex, 1);
+      await S.saveProfile(p);
+      location.reload();
+      return;
+    }
+    if (r.profilePath) {
+      const p = await S.getProfile();
+      CANON.writeProfile(p, r.profilePath, '', { education: S.blankEducationEntry });
+      await S.saveProfile(p);
+    }
+    await S.deleteCanonAnswer(r.key);
+    if (r.profilePath) location.reload();
+    else renderCanon();
+  });
+  actions.append(save, del);
+  tr.append(actions);
+  return tr;
+}
+
+renderCanon();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.canonAnswers) renderCanon();
+});
+
 async function renderAi(message) {
   const [settings, key] = await Promise.all([S.getAiSettings(), S.getApiKey()]);
   aiEnabled.checked = settings.enabled;

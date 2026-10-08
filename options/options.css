@@ -226,3 +226,11 @@ fieldset.plain { border: none; padding: 0; margin: 10px 0 12px; display: flex; f
 fieldset.plain legend { font-weight: 600; margin-bottom: 4px; }
 fieldset.plain label.check { align-items: flex-start; align-self: stretch; padding-bottom: 0; font-weight: 400; }
 fieldset.plain input[type="radio"] { width: auto; flex: none; margin-top: 3px; }
+
+.canon-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 14px; }
+.canon-table th { text-align: left; font-size: 12px; color: var(--muted); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+.canon-table td { padding: 6px; border-bottom: 1px solid var(--border); vertical-align: top; overflow-wrap: anywhere; }
+.canon-table td input, .canon-table td select { width: 100%; margin-bottom: 4px; }
+.canon-table .row-actions { white-space: nowrap; }
+.canon-table .row-actions button { margin-left: 4px; }
+.canon-table td:nth-child(4), .canon-table th:nth-child(4) { white-space: nowrap; }
