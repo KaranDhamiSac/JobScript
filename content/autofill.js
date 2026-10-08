@@ -1106,6 +1106,8 @@
   // "Sacramento, CA" -> "sacramento california", for matching location search results.
   function expandStates(text) {
     return norm(text)
+    // "Month YYYY" or an example like "e.g. May 2027": write the month out.
+    if (/\bmonth,? ?(and )?y(ea)?r|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{4}\b/i.test(ph)) return C.formatDate(`${ym.y}-${mm}`, 'text');
       .split(' ')
       .map((t) => (t.length === 2 && FM.US_STATES[t.toUpperCase()] ? norm(FM.US_STATES[t.toUpperCase()]) : t))
       .join(' ');
