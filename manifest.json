@@ -92,6 +92,7 @@
         "lib/storage.js",
         "lib/fieldMap.js",
         "lib/dateRules.js",
+        "lib/canonical.js",
         "content/panel.js",
         "content/bank.js",
         "content/autofill.js"

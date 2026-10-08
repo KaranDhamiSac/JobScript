@@ -8,7 +8,7 @@
 // them before this file in manifest.json "background.scripts".
 if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/research.js', 'lib/letterCheck.js');
 
-const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'lib/dateRules.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js'];
+const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'lib/dateRules.js', 'lib/canonical.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js'];
 const CONTENT_CSS = ['content/autofill.css'];
 
 // Calls the fill in every frame that has the content script. Frames without it return null.

@@ -5,7 +5,7 @@ DEV="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$DEV")"
 {
   echo "delete globalThis.__jobscriptFill;"
-  cat "$DEV/stub.js" "$ROOT/lib/storage.js" "$ROOT/lib/fieldMap.js" "$ROOT/lib/dateRules.js"
+  cat "$DEV/stub.js" "$ROOT/lib/storage.js" "$ROOT/lib/fieldMap.js" "$ROOT/lib/dateRules.js" "$ROOT/lib/canonical.js"
   # Let the proxied site's rules apply on 127.0.0.1 (the proxy sets window.__jsTargetSite).
   echo '(FieldMap.sites.find(function(s){return s.name===window.__jsTargetSite})||{hosts:[]}).hosts.push(/^127\.0\.0\.1$/);'
   # Open shadow roots, so tests can read the panel (document.querySelector('jobscript-panel').shadowRoot).
