@@ -31,6 +31,7 @@ test('different wordings of the same question share a key', () => {
   assert.equal(keyOf('What is your major?'), 'generic:education.major');
   assert.equal(keyOf('Field of study'), 'generic:education.major');
   assert.equal(keyOf('Cumulative GPA'), 'generic:education.gpa');
+  for (const w of ['What languages do you speak?', 'Languages spoken', 'Languages you speak']) assert.equal(keyOf(w), 'generic:general.languages', w);
 });
 
 test('changing questions', () => {
