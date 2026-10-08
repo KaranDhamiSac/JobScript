@@ -11,6 +11,10 @@
 //   details (optional): { title, lines: [strings] }, a short read-only block (the company)
 //   warning (optional): one line shown above everything else, e.g. another autofill extension
 //   footerActions (optional): [{ label, ariaLabel, onClick }], shown as links under the list
+//   agent (optional): agent mode's run, shown above the list (see drawAgent)
+//     { running, title, status, log: [{ text, kind: 'action'|'info'|'error'|'refused' }],
+//       usage: text, allowNav, onAllowNav(bool), onStop, onClose,
+//       prompt: { text, detail, options: [{ label, value, primary }], freeText, onAnswer(value) } }
 //   review (optional, replaces the list): { title, rows, onSave, onCancel }
 //     rows: [{ id, label, value, checked, note, dateChoices: { choices: [{ rule, label }], selected } }]
 //     onSave([{ id, dateRule }]) gets the ticked rows.
@@ -90,6 +94,23 @@
     .row:hover { background: var(--hover); }
     .row input { margin: 2px 0 0; }
     .row .value { grid-column: 2; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .agent { border-bottom: 1px solid var(--border); padding: 8px 12px; display: flex; flex-direction: column; gap: 6px; }
+    .agent-head { display: flex; align-items: center; gap: 8px; }
+    .agent-head strong { flex: 1; font-size: 12px; }
+    .agent-status { color: var(--muted); font-size: 12px; }
+    .agent-log { margin: 0; padding: 0; list-style: none; max-height: 150px; overflow-y: auto; overscroll-behavior: contain; font-size: 12px; border: 1px solid var(--border); border-radius: 6px; }
+    .agent-log li { padding: 3px 8px; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+    .agent-log li:last-child { border-bottom: none; }
+    .agent-log .info { color: var(--muted); }
+    .agent-log .error, .agent-log .refused { color: var(--needs); }
+    .agent-usage { color: var(--muted); font-size: 11px; }
+    .agent-prompt { border: 1px solid var(--accent); border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .agent-prompt p { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+    .agent-prompt .muted { font-weight: 400; color: var(--muted); font-size: 12px; }
+    .agent-prompt .choices { display: flex; flex-wrap: wrap; gap: 6px; }
+    .agent-prompt input[type=text] { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); }
+    .btn.stop { border-color: var(--needs); color: var(--needs); font-weight: 600; }
+    .agent label { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); cursor: pointer; }
     .row select { grid-column: 2; margin-top: 3px; font: inherit; font-size: 12px; max-width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; }
   `;
 
@@ -288,6 +309,7 @@
     // Plain-text result of the last fill ("Filled 12 of 15. Needs you: …"), read aloud on change.
     body.appendChild(el('div', { class: 'note fill-summary', role: 'status', 'aria-live': 'polite', text: state.summaryText || '' }));
     body.appendChild(el('div', { class: 'note', text: state.note || '' }));
+    if (state.agent) body.appendChild(drawAgent(state.agent));
     if (state.details && state.details.lines.length) {
       body.appendChild(
         el('section', { class: 'details', 'aria-label': state.details.title }, [
@@ -365,6 +387,68 @@
     if (!shadow.adoptedStyleSheets || !shadow.adoptedStyleSheets.length) {
       if (!shadow.querySelector('style')) shadow.prepend(el('style', { text: CSS }));
     }
+  }
+
+  // Agent mode: what it's doing, a log of every action, its cost, and a Stop button that works
+  // at once. A question or an approval request from the agent waits here for your answer.
+  function drawAgent(agent) {
+    const box = el('section', { class: 'agent', 'aria-label': 'JobScript agent' });
+    const head = el('div', { class: 'agent-head' }, [el('strong', { text: agent.title || 'Agent' })]);
+    if (agent.running) {
+      head.appendChild(el('button', { class: 'btn stop', type: 'button', text: 'Stop', 'aria-label': 'Stop the agent now', onclick: trusted(() => agent.onStop()) }));
+    } else if (agent.onClose) {
+      head.appendChild(el('button', { class: 'icon', type: 'button', text: '×', title: 'Hide the agent log', 'aria-label': 'Hide the agent log', onclick: trusted(() => agent.onClose()) }));
+    }
+    box.appendChild(head);
+    if (agent.status) box.appendChild(el('div', { class: 'agent-status', role: 'status', 'aria-live': 'polite', text: agent.status }));
+    if (agent.running && agent.onAllowNav) {
+      const nav = el('input', { type: 'checkbox' });
+      nav.checked = !!agent.allowNav;
+      nav.addEventListener('change', (e) => {
+        if (e.isTrusted) agent.onAllowNav(nav.checked);
+      });
+      box.appendChild(el('label', { title: 'The agent never presses Submit or Apply' }, [nav, document.createTextNode('Allow Continue / Next for this run')]));
+    }
+    if (agent.prompt) box.appendChild(drawAgentPrompt(agent.prompt));
+    if (agent.log && agent.log.length) {
+      const list = el('ul', { class: 'agent-log', 'aria-label': 'Agent actions' });
+      for (const entry of agent.log) list.appendChild(el('li', { class: entry.kind || 'action', text: entry.text }));
+      box.appendChild(list);
+      // Newest at the bottom, in view.
+      requestAnimationFrame(() => { list.scrollTop = list.scrollHeight; });
+    }
+    if (agent.usage) box.appendChild(el('div', { class: 'agent-usage', text: agent.usage }));
+    return box;
+  }
+
+  function drawAgentPrompt(prompt) {
+    const wrap = el('div', { class: 'agent-prompt', role: 'group', 'aria-label': 'The agent is asking you' });
+    wrap.appendChild(el('p', { text: prompt.text }));
+    if (prompt.detail) wrap.appendChild(el('p', { class: 'muted', text: prompt.detail }));
+    const choices = el('div', { class: 'choices' });
+    let answered = false;
+    const answer = (value) => {
+      if (answered) return;
+      answered = true;
+      prompt.onAnswer(value);
+    };
+    for (const o of prompt.options || []) {
+      choices.appendChild(el('button', { class: 'btn' + (o.primary ? ' primary' : ''), type: 'button', text: o.label, onclick: trusted(() => answer(o.value)) }));
+    }
+    if (prompt.freeText) {
+      const input = el('input', { type: 'text', 'aria-label': 'Your answer', placeholder: 'Or type an answer' });
+      // Kept on the prompt, so a redraw of the panel doesn't lose what you've typed.
+      input.value = prompt.draft || '';
+      input.addEventListener('input', () => { prompt.draft = input.value; });
+      const send = el('button', { class: 'btn primary', type: 'button', text: 'Send', onclick: trusted(() => input.value.trim() && answer(input.value.trim())) });
+      input.addEventListener('keydown', (e) => {
+        if (e.isTrusted && e.key === 'Enter' && input.value.trim()) answer(input.value.trim());
+      });
+      wrap.append(choices, input, send);
+    } else {
+      wrap.appendChild(choices);
+    }
+    return wrap;
   }
 
   // A list of answers to tick before saving them.
