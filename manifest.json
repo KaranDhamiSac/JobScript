@@ -42,6 +42,7 @@
     "scripts": [
       "lib/storage.js",
       "lib/ai.js",
+      "lib/agent.js",
       "lib/research.js",
       "lib/letterCheck.js",
       "lib/canonical.js",
@@ -96,7 +97,8 @@
         "lib/canonical.js",
         "content/panel.js",
         "content/bank.js",
-        "content/autofill.js"
+        "content/autofill.js",
+        "content/agent.js"
       ],
       "css": [
         "content/autofill.css"

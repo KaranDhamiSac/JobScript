@@ -6,9 +6,9 @@
 
 // Chrome runs this file as a service worker and loads helpers with importScripts; Firefox lists
 // them before this file in manifest.json "background.scripts".
-if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/research.js', 'lib/letterCheck.js', 'lib/canonical.js');
+if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/agent.js', 'lib/research.js', 'lib/letterCheck.js', 'lib/canonical.js');
 
-const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'lib/dateRules.js', 'lib/canonical.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js'];
+const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'lib/dateRules.js', 'lib/canonical.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js', 'content/agent.js'];
 const CONTENT_CSS = ['content/autofill.css'];
 
 // Calls the fill in every frame that has the content script. Frames without it return null.
@@ -403,6 +403,152 @@ async function classifyQuestion(msg) {
 }
 
 // ---------------------------------------------------------------------------
+// Agent mode (lib/agent.js runs the loop; content/agent.js runs the tools and enforces the rules).
+// A run belongs to one frame of one tab, started from the panel there, and is locked to that
+// frame's site: if the frame or the tab leaves it, or the tab closes, the run stops.
+
+const agentRuns = new Map(); // tabId -> { runId, frameId, host, tabHost, controller, stopReason }
+
+function hostOf(url) {
+  try {
+    return new URL(url).hostname;
+  } catch (e) {
+    return '';
+  }
+}
+
+function stopAgent(tabId, reason) {
+  const run = agentRuns.get(tabId);
+  if (!run) return;
+  if (!run.stopReason) run.stopReason = reason;
+  run.controller.abort();
+}
+
+function sendToRun(tabId, run, message) {
+  return chrome.tabs.sendMessage(tabId, Object.assign({ runId: run.runId }, message), { frameId: run.frameId });
+}
+
+async function monthText() {
+  const [{ monthlyCap }, spend] = await Promise.all([JobScriptStorage.getAgentSettings(), JobScriptStorage.getAiSpend()]);
+  return monthlyCap > 0 ? `This month: $${spend.cost.toFixed(2)} of your $${monthlyCap.toFixed(2)} cap.` : `This month: $${spend.cost.toFixed(2)}.`;
+}
+
+async function startAgent(msg, sender) {
+  const tabId = sender.tab.id;
+  if (typeof msg.runId !== 'string' || !msg.runId) return { ok: false, error: 'Bad request.' };
+  if (agentRuns.has(tabId)) return { ok: false, error: 'The agent is already running in this tab.' };
+  const aiSettings = await JobScriptStorage.getAiSettings();
+  if (!aiSettings.enabled) return { ok: false, error: 'Turn on AI features on the options page first.' };
+  const access = await aiAccess();
+  if (!access.ok) return access;
+  const host = hostOf(sender.url);
+  const tabHost = hostOf(sender.tab.url);
+  if (!host) return { ok: false, error: 'The agent can’t run on this page.' };
+  const [settings, profile, canonAnswers, saved] = await Promise.all([
+    JobScriptStorage.getAgentSettings(),
+    JobScriptStorage.getProfile(),
+    JobScriptStorage.getCanonAnswers(),
+    JobScriptStorage.getPosting(sender.tab.url),
+  ]);
+  const spend = await JobScriptStorage.getAiSpend();
+  if (settings.monthlyCap > 0 && spend.cost >= settings.monthlyCap) {
+    return { ok: false, error: `You’ve reached this month’s Claude spending cap ($${settings.monthlyCap.toFixed(2)}). Raise it on the options page to continue.` };
+  }
+  const page = msg.job && typeof msg.job === 'object' ? msg.job : {};
+  const job = saved && saved.description
+    ? { title: saved.title, company: saved.company, description: saved.description }
+    : { title: String(page.jobTitle || ''), company: String(page.company || ''), description: String(page.jobDescription || '') };
+
+  const run = { runId: msg.runId, frameId: sender.frameId || 0, host, tabHost, controller: new AbortController(), stopReason: '' };
+  agentRuns.set(tabId, run);
+  const notify = (e) => sendToRun(tabId, run, Object.assign({ type: 'agent-event' }, e)).catch(() => {});
+
+  const execute = async (name, input) => {
+    if (name === 'screenshot') return settings.screenshots ? screenshotTab(tabId) : { text: 'Screenshots are turned off.', isError: true };
+    let res;
+    try {
+      res = await sendToRun(tabId, run, { type: 'agent-tool', name, input });
+    } catch (e) {
+      return { text: 'The page stopped responding.', isError: true, stop: 'The page reloaded or closed, so the agent stopped. Run it again on the new page.' };
+    }
+    if (!res) return { text: 'The page stopped responding.', isError: true, stop: 'The page stopped responding, so the agent stopped.' };
+    if (res.stopped) return Object.assign({}, res, { stop: 'Stopped by you.' });
+    if (res.url && hostOf(res.url) !== host) {
+      return { text: 'The page left the site.', isError: true, stop: `The page left ${host}, so the agent stopped.` };
+    }
+    return res;
+  };
+
+  JobScriptAgent.run({
+    apiKey: access.apiKey,
+    model: settings.model,
+    signal: run.controller.signal,
+    profile,
+    canonAnswers,
+    canonical: JobScriptCanonical.QUESTIONS.map((q) => ({ key: q.key, label: q.label })),
+    job,
+    snapshot: String(msg.snapshot || '').slice(0, 60000),
+    screenshots: settings.screenshots,
+    execute,
+    onEvent: notify,
+  })
+    .catch(() => ({ ok: false, error: 'Something went wrong in the agent.', usageText: '' }))
+    .then(async (res) => {
+      agentRuns.delete(tabId);
+      const text = res.ok
+        ? 'Done. ' + (res.summary || 'Check the form before you submit.')
+        : run.stopReason || res.error || 'The agent stopped.';
+      const usage = [res.usageText, await monthText()].filter(Boolean).join(' · ');
+      await notify({ usage, end: text, isError: !res.ok && !res.stopped && !run.stopReason.startsWith('Stopped by you') });
+    });
+
+  return { ok: true, model: (JobScriptStorage.AGENT_MODELS.find((m) => m.id === settings.model) || {}).label || settings.model };
+}
+
+// A screenshot of the visible part of the tab, for pages whose snapshot is clearly missing
+// something. Captured only while the tab is in front; scaled down to keep it cheap.
+const SCREENSHOT_MAX_WIDTH = 1280;
+
+async function screenshotTab(tabId) {
+  let tab;
+  try {
+    tab = await chrome.tabs.get(tabId);
+  } catch (e) {
+    return { text: 'The tab is gone.', isError: true };
+  }
+  if (!tab.active) return { text: 'The tab isn’t in front, so no screenshot was taken. Work from the snapshot.', isError: true };
+  let dataUrl;
+  try {
+    dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'jpeg', quality: 60 });
+  } catch (e) {
+    return { text: 'JobScript isn’t allowed to take screenshots of this page. Work from the snapshot.', isError: true };
+  }
+  try {
+    const blob = await (await fetch(dataUrl)).blob();
+    const bitmap = await createImageBitmap(blob);
+    if (bitmap.width > SCREENSHOT_MAX_WIDTH) {
+      const scale = SCREENSHOT_MAX_WIDTH / bitmap.width;
+      const canvas = new OffscreenCanvas(SCREENSHOT_MAX_WIDTH, Math.round(bitmap.height * scale));
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const small = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.6 });
+      const bytes = new Uint8Array(await small.arrayBuffer());
+      let bin = '';
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+      return { image: btoa(bin), mediaType: 'image/jpeg' };
+    }
+  } catch (e) {
+    /* send it at full size */
+  }
+  return { image: dataUrl.slice(dataUrl.indexOf(',') + 1), mediaType: 'image/jpeg' };
+}
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  const run = agentRuns.get(tabId);
+  if (run && changeInfo.url && hostOf(changeInfo.url) !== run.tabHost) stopAgent(tabId, `The tab left ${run.tabHost}, so the agent stopped.`);
+});
+chrome.tabs.onRemoved.addListener((tabId) => stopAgent(tabId, 'The tab was closed.'));
+
+// ---------------------------------------------------------------------------
 // Learn mode. On a site you let JobScript run on (an optional permission for just that site,
 // asked for from the popup), the content script is registered to load with every page, so the
 // panel can follow a multi-step form even when each step loads a new page.
@@ -577,6 +723,18 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'research-estimate') {
     if (!isTrustedSender(sender, 'company/')) return false;
     sendResponse({ ok: true, estimate: JobScriptAI.estimateWebSearchCost() });
+    return false;
+  }
+  if (msg.type === 'agent-start') {
+    if (!isOwnContentScript(sender)) return false;
+    startAgent(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: 'The agent couldn’t start.' }));
+    return true;
+  }
+  if (msg.type === 'agent-stop') {
+    if (!isOwnContentScript(sender)) return false;
+    const run = agentRuns.get(sender.tab.id);
+    if (run && run.runId === msg.runId) stopAgent(sender.tab.id, 'Stopped by you.');
+    sendResponse({ ok: true });
     return false;
   }
   if (msg.type === 'ai-answer') {

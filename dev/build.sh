@@ -10,7 +10,7 @@ ROOT="$(dirname "$DEV")"
   echo '(FieldMap.sites.find(function(s){return s.name===window.__jsTargetSite})||{hosts:[]}).hosts.push(/^127\.0\.0\.1$/);'
   # Open shadow roots, so tests can read the panel (document.querySelector('jobscript-panel').shadowRoot).
   sed "s/mode: 'closed'/mode: 'open'/" "$ROOT/content/panel.js" "$ROOT/content/bank.js"
-  cat "$ROOT/content/autofill.js"
+  cat "$ROOT/content/autofill.js" "$ROOT/content/agent.js"
   printf '\n(function(){var s=document.getElementById("jobscript-test-css")||document.head.appendChild(Object.assign(document.createElement("style"),{id:"jobscript-test-css"}));s.textContent=%s;})();\n' \
     "$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1]).read()))' "$ROOT/content/autofill.css")"
 } > "$DEV/bundle.js"
