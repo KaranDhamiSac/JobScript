@@ -3298,6 +3298,8 @@
   });
 
   async function initLauncher() {
+    // Scripts loaded in <head> (the dev mocks) run before there's a body to look at.
+    if (!document.body) await new Promise((r) => document.addEventListener('DOMContentLoaded', r, { once: true }));
     try {
       buttonOn = (await S.getPanelSettings()).showButton;
     } catch (e) {
