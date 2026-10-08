@@ -1788,7 +1788,11 @@
       actions.push({ label: 'Save all answers', ariaLabel: 'Save all answers on this step', onClick: () => openReview(currentAnswers(), 'Save your answers on this step') });
     }
     if (hasSuggestions) actions.push({ label: 'Accept all', ariaLabel: 'Accept all suggestions', primary: true, onClick: acceptAllSuggestions });
+    const agentUi = globalThis.JobScriptAgentUI;
+    const agentAction = agentUi && agentUi.toolbarAction();
+    if (agentAction) actions.push(agentAction);
     globalThis.JobScriptPanel.render({
+      agent: agentUi ? agentUi.panelState() : null,
       summaryText: fillSummaryText(fields),
       warning: conflictWarning(),
       details: companyDetails(),
@@ -1891,13 +1895,16 @@
 
   // The panel before JobScript has filled anything on this page.
   function renderIdle() {
+    const agentUi = globalThis.JobScriptAgentUI;
+    const agentAction = agentUi && agentUi.toolbarAction();
     globalThis.JobScriptPanel.render({
+      agent: agentUi ? agentUi.panelState() : null,
       note: idleNote || 'Nothing filled on this page yet. ' + siteWarning() + DEFAULT_NOTE,
       summaryText: '',
       warning: conflictWarning(),
       details: companyDetails(),
       emptyText: 'Press “Fill this page” to fill this form from your profile.',
-      toolbarActions: [{ label: 'Fill this page', ariaLabel: 'Fill this page', primary: true, onClick: fillFromPanel }],
+      toolbarActions: [{ label: 'Fill this page', ariaLabel: 'Fill this page', primary: true, onClick: fillFromPanel }, agentAction].filter(Boolean),
       footerActions: footerActions(),
       onSelect: () => {},
       items: [],
@@ -3224,8 +3231,12 @@
       return summary();
     } finally {
       running = false;
+      // With agent mode set to run by itself, it finishes the step (and answers these questions
+      // along the way); otherwise the questions go to Claude for suggestions.
+      const agentUi = globalThis.JobScriptAgentUI;
+      const agentRuns = !!(session && agentUi && agentUi.afterFill());
       // The API call can take a while; don't hold up the popup. Answers arrive as suggestions.
-      if (aiQuestions) askAi(aiQuestions);
+      if (aiQuestions && !agentRuns) askAi(aiQuestions);
     }
   }
 
@@ -3320,6 +3331,50 @@
     }
     if (settings.autoShow && !session && !globalThis.JobScriptPanel.isOpen()) openPanel();
   }
+
+  // A session for agent mode on a page the fill found nothing to do on (an unfamiliar form):
+  // the panel lists what the agent fills, with the same Accept / Dismiss and saving as a fill.
+  async function ensureSession() {
+    if (session) return session;
+    const [profile, answerSettings, saved] = await Promise.all([S.getProfile(), S.getAnswerSettings(), S.getSiteAnswers(location.origin)]);
+    if (session) return session;
+    siteFields = saved.fields;
+    await loadCanon(profile);
+    session = {
+      site: findRoot().site,
+      profile,
+      autoSave: answerSettings.autoSave,
+      learning: false,
+      steps: saved.steps,
+      stepIndex: -1,
+      note: siteWarning() + DEFAULT_NOTE,
+      forceResume: false,
+      tailoredId: '',
+      aiEnabled: true,
+      stepPending: false,
+      lastStep: null,
+      review: null,
+    };
+    Object.assign(session, (({ title, company }) => ({ jobTitle: title, company }))(titleAndCompany()));
+    offerLauncher();
+    globalThis.JobScriptPanel.open();
+    return session;
+  }
+
+  // For content/agent.js, which runs in this same isolated world (page scripts can't see it).
+  // Agent mode reads and fills the form with the same code as a fill.
+  globalThis.JobScriptFill = {
+    FM, S, C, HEADING_SELECTOR, AI_EXCLUDE_LABEL,
+    clean, norm, sleep, waitFor, deepQueryAll, closestDeep, isVisible, isReallyVisible, isDateKind,
+    findRoot, collectFields, analyze, currentValueText, isEmpty, stepTitleNow, jobInfo,
+    applyValue, attachFile, fillCoverLetter, readComboOptions, readListboxOptions, highlightTarget,
+    classifyWording, classifyForLearning, storeGeneric, saveAnswers, openReview, dateChoices, saveable,
+    suggest, setStatus, preview, renderPanel, askForJobResume, watchBank, focusField,
+    ensureSession, renderIdle,
+    getSession: () => session,
+    registry,
+    isRunning: () => running,
+  };
 
   globalThis.__jobscriptFill = fillPage;
   globalThis.__jobscriptJobPosting = jobPosting;
