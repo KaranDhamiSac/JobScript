@@ -12,7 +12,7 @@ const store = { profile: {
   references:[{name:'Pat Example', company:'Northwind Logistics', relationship:'Manager', email:'pat@example.com', phone:'5555550100', yearsKnown:'2', mayContact:'yes'},
               {name:'Sam Sample', company:'Campus IT', relationship:'Supervisor', email:'sam@example.com', phone:'5555550101', yearsKnown:'1', mayContact:'no'}] },
   resume: { name:'resume.pdf', type:'application/pdf', size:4, data: btoa('%PDF'), savedAt: new Date().toISOString() } };
-window.chrome = { storage: { local: { get: async k => ({[k]: store[k]}), set: async o => Object.assign(store,o), remove: async k => delete store[k] } } };
+window.chrome = { storage: { local: { get: async k => (k === null ? {...store} : {[k]: store[k]}), set: async o => Object.assign(store,o), remove: async k => delete store[k] }, onChanged: { addListener() {} } } };
 </script>
 <script src="../lib/storage.js"></script>
 <script src="../lib/fieldMap.js"></script>

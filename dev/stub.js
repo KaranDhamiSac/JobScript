@@ -19,5 +19,9 @@
       savedAt: new Date().toISOString() },
   };
   window.chrome = window.chrome || {};
-  window.chrome.storage = { local: { get: async (k) => ({ [k]: store[k] }), set: async (o) => Object.assign(store, o), remove: async (k) => { delete store[k]; } } };
+  // get(null) returns everything, like the real API; onChanged is a no-op (nothing else writes).
+  window.chrome.storage = {
+    local: { get: async (k) => (k === null ? { ...store } : { [k]: store[k] }), set: async (o) => Object.assign(store, o), remove: async (k) => { delete store[k]; } },
+    onChanged: { addListener() {} },
+  };
 })();
