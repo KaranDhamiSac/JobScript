@@ -2059,6 +2059,12 @@
       rows.map((r) => ({ key: r.f.siteKey, label: r.f.label, kind: r.f.kind, answer: r.answer, dateRule: r.dateRule, profileKey: profileKey(r.f) }))
     );
     for (const r of rows) siteFields[r.f.siteKey] = { answer: r.answer, dateRule: r.dateRule, profileKey: profileKey(r.f) };
+    // A changing question (start date, salary) keeps its rule under its canonical question.
+    for (const { f, value, dateRule } of items) {
+      if (!(f.cls && f.cls.type === 'changing' && f.cls.key)) continue;
+      const kind = canonKind(f, f.cls.key);
+      await S.saveCanonAnswer({ key: f.cls.key, type: 'changing', kind, label: canonLabel(f, f.cls.key), wording: f.label, rule: dateRule || '', value: dateRule ? '' : C.parseAnswer(kind, value) });
+    }
   }
 
   // Fields whose answers may be saved: not uploads, checkboxes (consent is yours to give each
@@ -2136,14 +2142,7 @@
     globalThis.JobScriptBank.watch(f, {
       getValue: () => currentValueText(f),
       anchor: () => highlightTarget(f),
-      save: async (value, dateRule) => {
-        await saveAnswers([{ f, value, dateRule }]);
-        // A changing question (start date, salary) keeps its rule under its canonical question.
-        if (f.cls && f.cls.type === 'changing' && f.cls.key) {
-          const kind = canonKind(f, f.cls.key);
-          await S.saveCanonAnswer({ key: f.cls.key, type: 'changing', kind, label: canonLabel(f, f.cls.key), wording: f.label, rule: dateRule || '', value: dateRule ? '' : C.parseAnswer(kind, value) });
-        }
-      },
+      save: (value, dateRule) => saveAnswers([{ f, value, dateRule }]),
       dateChoices: (value) => dateChoices(f, value),
       onUserValue: (value) => learnFromAnswer(f, value),
       onSaved: () => {
