@@ -133,8 +133,16 @@
         const value = getValue();
         if (!value) return;
         // onUserValue returns true when it saved the answer itself (auto-save is on).
-        if (onUserValue && onUserValue(value) === true) return;
-        show({ f, getValue, save, dateChoices, onSaved }, anchor());
+        // onUserValue returns true (or a promise of true) when it took care of the answer itself,
+        // e.g. saved it automatically; otherwise the "Save to bank" prompt appears.
+        const handled = onUserValue ? onUserValue(value) : false;
+        const prompt = () => show({ f, getValue, save, dateChoices, onSaved }, anchor());
+        if (handled === true) return;
+        if (handled && typeof handled.then === 'function') {
+          handled.then((done) => done !== true && prompt(), prompt);
+          return;
+        }
+        prompt();
       }, 0);
     };
     const targets = container ? [container] : els;
@@ -166,5 +174,36 @@
     if (active && host && active.anchorEl.isConnected) position(active.anchorEl);
   }, { passive: true, capture: true });
 
-  globalThis.JobScriptBank = { watch, unwatch, reset };
+  // A short note under a field after JobScript saved your answer on its own ("Saved", "Updated"),
+  // with Undo. undo() resolves when the previous answer is back.
+  function toast(anchor, text, undo) {
+    if (!anchor || !anchor.isConnected) return;
+    ensureHost();
+    active = { f: { id: -1 }, anchorEl: anchor };
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.setAttribute('role', 'status');
+    const label = document.createElement('span');
+    label.textContent = text;
+    bubble.append(label);
+    if (undo) {
+      const b = button('save', 'Undo', async () => {
+        b.disabled = true;
+        await undo();
+        label.textContent = 'Undone';
+        b.remove();
+        clearTimeout(hideTimer);
+        hideTimer = setTimeout(hide, 1500);
+      });
+      b.setAttribute('aria-label', `Undo: ${text}`);
+      bubble.append(b);
+    }
+    bubble.append(button('close', '×', hide));
+    shadow.replaceChildren(bubble);
+    position(anchor);
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(hide, 8000);
+  }
+
+  globalThis.JobScriptBank = { watch, unwatch, reset, toast };
 })();
