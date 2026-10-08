@@ -741,9 +741,120 @@
     return match;
   }
 
+  // ---------------------------------------------------------------------------
+  // Canonical answers (lib/canonical.js): a question you've answered before is answered the same
+  // way, whatever its wording. Generic facts fill automatically, changing ones (start date,
+  // salary) are suggested from their saved rule, and job-specific ones are never reused.
+
+  const C = globalThis.JobScriptCanonical;
+  let canonAnswers = {};
+  let questionClasses = {};
+  let customByKey = new Map(); // canonical key -> your custom answers worded for it
+  let canonUsed = []; // canonical questions answered in this fill, recorded at the end
+
+  function learnedQuestions() {
+    return Object.values(canonAnswers).map((e) => ({ key: e.key, type: e.type, wordings: e.wordings || [] }));
+  }
+
+  // { type, key, by } for a wording: the built-in rules and your saved wordings first, then what
+  // Claude said about it before (cached), else null.
+  function classifyWording(wording) {
+    const ruled = C.classify(wording, { learned: learnedQuestions(), company: (session && session.company) || '' });
+    if (ruled) return ruled;
+    const cached = questionClasses[S.questionWordingKey(wording)];
+    return cached && cached.type ? { type: cached.type, key: cached.key || '', by: cached.by || 'claude' } : null;
+  }
+
+  function rebuildCustomByKey(profile) {
+    customByKey = new Map();
+    for (const a of (profile && profile.customAnswers) || []) {
+      if (!a.question || !(a.answer || a.dateRule)) continue;
+      const c = classifyWording(a.question);
+      if (!c || !c.key || c.type === 'job') continue;
+      if (!customByKey.has(c.key)) customByKey.set(c.key, []);
+      customByKey.get(c.key).push(a);
+    }
+  }
+
+  async function loadCanon(profile) {
+    [canonAnswers, questionClasses] = await Promise.all([S.getCanonAnswers(), S.getQuestionClasses()]);
+    rebuildCustomByKey(profile);
+  }
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.canonAnswers) canonAnswers = changes.canonAnswers.newValue || {};
+    if (changes.questionClass) questionClasses = changes.questionClass.newValue || {};
+  });
+
+  // A saved answer's value for filling: a rule ("+14d") becomes today's date; other rules (a
+  // salary range) are used as written.
+  function candidateValue(c) {
+    if (c.rule) return globalThis.JobScriptDates.isRule(c.rule) ? globalThis.JobScriptDates.resolve(c.rule) : c.rule;
+    return c.value;
+  }
+
+  // Every saved answer for a canonical question: the profile fact or saved answer, plus custom
+  // answers worded differently. Distinct answers only, newest first.
+  function canonCandidates(key, profile) {
+    const q = C.get(key);
+    const entry = canonAnswers[key];
+    const all = [];
+    if (q && q.profile) {
+      const v = C.readProfile(profile, q.profile);
+      if (v) all.push({ value: v, rule: '', at: (entry && entry.updatedAt) || '', from: 'profile' });
+    } else if (entry && (entry.value || entry.rule)) {
+      all.push({ value: entry.value, rule: entry.rule, at: entry.updatedAt || '', from: 'saved' });
+    }
+    for (const a of customByKey.get(key) || []) all.push({ value: a.answer, rule: a.dateRule || '', at: a.savedAt || '', from: 'custom', question: a.question });
+    all.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+    const seen = new Set();
+    return all.filter((c) => {
+      const k = norm(c.rule || c.value);
+      if (!k || seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+  }
+
+  // The match from your canonical answers: undefined when there's nothing to say, null for a
+  // job-specific question (never filled from saved answers).
+  function matchCanonical(f, profile) {
+    const cls = f.cls;
+    if (!cls) return undefined;
+    if (cls.type === 'job') return null;
+    if (!cls.key) return undefined;
+    const q = C.get(cls.key);
+    // Facts in a repeating section (your second school, say) are matched by the section rules.
+    if (f.section && q && q.profile) return undefined;
+    const cands = canonCandidates(cls.key, profile);
+    if (!cands.length) return undefined;
+    const kind = (q && q.kind) || (canonAnswers[cls.key] && canonAnswers[cls.key].kind) || 'text';
+    const match = {
+      source: 'saved answer',
+      type: kind === 'date' ? 'date' : kind === 'bool' ? 'bool' : 'text',
+      raw: candidateValue(cands[0]),
+      canonKey: cls.key,
+      conflict: cands.length > 1 ? cands : null,
+    };
+    return withConfidence(match, cls.type === 'changing' ? 0.7 : 0.95);
+  }
+
   // Answers saved for this site's field come first. If the field showed a profile entry when it
-  // was saved, your current profile value is used instead, when it has one.
+  // was saved, your current profile value is used instead, when it has one. Job-specific
+  // questions are never filled from anything saved.
   function matchField(f, profile) {
+    // Questions in a repeating section (a job's start date, a reference's phone) belong to that
+    // entry of your profile, not to a canonical question.
+    f.cls = f.kind === 'file' || f.kind === 'checkbox' || f.section ? null : classifyWording(f.desc.labelRaw);
+    const job = !!(f.cls && f.cls.type === 'job');
+    let m = job ? null : matchSaved(f, profile);
+    if (m && f.cls && f.cls.type === 'changing' && m.tier === 'high') m = withConfidence(m, 0.7); // always a suggestion
+    if (m && f.cls && f.cls.key && !m.canonKey) m.canonKey = f.cls.key;
+    return m;
+  }
+
+  function matchSaved(f, profile) {
     const site = f.kind !== 'file' && siteFields[f.siteKey];
     if (site && site.profileKey) {
       const m = matchProfile(f, profile);
@@ -752,7 +863,12 @@
     if (site && savedValue(site)) {
       return withConfidence({ source: 'saved for this site', type: 'text', raw: savedValue(site) }, 0.97);
     }
-    return matchProfile(f, profile);
+    const canon = matchCanonical(f, profile);
+    const prof = matchProfile(f, profile);
+    // The profile rule wins when it found the same fact with a value, unless saved answers
+    // disagree (then the newest is used and flagged).
+    if (canon && (canon.conflict || !prof || prof.tier !== 'high' || !(prof.raw || prof.section))) return canon;
+    return prof || canon || null;
   }
 
   function matchProfile(f, profile) {
@@ -990,6 +1106,8 @@
     if (/mm[-/ ]dd[-/ ]yyyy/.test(ph)) return `${mm}/01/${ym.y}`;
     if (/mm[-/ ]yy\b/.test(ph)) return `${mm}/${ym.y.slice(2)}`;
     if (PICK_DATE.test(ph)) return `${mm}/${dd}/${ym.y}`; // react-datepicker's default format
+    // "Month YYYY" or an example like "e.g. May 2027": write the month out.
+    if (/\bmonth,? ?(and )?y(ea)?r|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{4}\b/i.test(ph)) return C.formatDate(`${ym.y}-${mm}`, 'text');
     return `${mm}/${ym.y}`;
   }
 
@@ -1106,8 +1224,6 @@
   // "Sacramento, CA" -> "sacramento california", for matching location search results.
   function expandStates(text) {
     return norm(text)
-    // "Month YYYY" or an example like "e.g. May 2027": write the month out.
-    if (/\bmonth,? ?(and )?y(ea)?r|\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]* \d{4}\b/i.test(ph)) return C.formatDate(`${ym.y}-${mm}`, 'text');
       .split(' ')
       .map((t) => (t.length === 2 && FM.US_STATES[t.toUpperCase()] ? norm(FM.US_STATES[t.toUpperCase()]) : t))
       .join(' ');
@@ -1584,7 +1700,7 @@
   // fields get an on-page highlight; pre-filled fields are left alone.
   function setStatus(f, status, detail, extra) {
     f.status = status;
-    f.detail = detail || '';
+    f.detail = [detail, extra && extra.detail].filter(Boolean).join(' · ');
     f.draft = (extra && extra.draft) || '';
     f.actions = (extra && extra.actions) || [];
     unmark(f);
@@ -1870,6 +1986,8 @@
       if (ok) {
         globalThis.JobScriptBank.unwatch(f);
         setStatus(f, 'filled', preview(currentValueText(f)));
+        noteCanonFill(f);
+        S.noteCanonUse(canonUsed.splice(0)).catch(() => {});
       } else setStatus(f, 'needs', 'Could not fill this automatically');
       renderPanel();
       return ok;
@@ -1947,6 +2065,7 @@
   // time), demographic or reference questions, or anything sensitive.
   function saveable(f) {
     return (
+      !(f.cls && f.cls.type === 'job') && // never reused, so never saved
       f.kind !== 'file' &&
       f.kind !== 'checkbox' &&
       f.category !== 'eeo' &&
@@ -2133,7 +2252,8 @@
       return 'suggested';
     }
     if (result === true) {
-      setStatus(f, 'filled', preview(currentValueText(f)));
+      noteCanonFill(f);
+      setStatus(f, 'filled', preview(currentValueText(f)), conflictExtra(f, resume));
       return 'filled';
     }
     if (f.match && f.match.tier === 'low') {
@@ -2151,6 +2271,51 @@
     setStatus(f, 'needs', why);
     watchBank(f);
     return 'needs';
+  }
+
+  function noteCanonFill(f) {
+    const key = f.match && f.match.canonKey;
+    if (!key) return;
+    const q = C.get(key);
+    const entry = canonAnswers[key];
+    canonUsed.push({ key, wording: f.label, label: (q && q.label) || (entry && entry.label) || f.label, type: (f.cls && f.cls.type) || 'generic', kind: (q && q.kind) || (entry && entry.kind) || 'text' });
+  }
+
+  // Two saved answers disagree: the newest was used; buttons let you pick the one to keep.
+  function conflictExtra(f, resume) {
+    const cands = f.match && f.match.conflict;
+    if (!cands) return undefined;
+    return {
+      detail: `${cands.length} saved answers differ; used the newest`,
+      actions: cands.map((c) => ({
+        label: `Use “${preview(candidateValue(c)).slice(0, 28)}”`,
+        onClick: () => pickConflict(f, c, resume),
+      })),
+    };
+  }
+
+  // Makes every saved copy of this answer agree with your pick, then fills it.
+  async function pickConflict(f, cand, resume) {
+    const key = f.match.canonKey;
+    const q = C.get(key);
+    const profile = await S.getProfile();
+    if (q && q.profile) {
+      C.writeProfile(profile, q.profile, cand.rule ? candidateValue(cand) : cand.value, { education: S.blankEducationEntry });
+    } else {
+      await S.saveCanonAnswer({ key, value: cand.value || '', rule: cand.rule || '', type: (f.cls && f.cls.type) || 'generic', label: f.label, wording: f.label });
+    }
+    for (const a of profile.customAnswers) {
+      if ((customByKey.get(key) || []).some((x) => x.question === a.question)) Object.assign(a, { answer: cand.value || '', dateRule: cand.rule || '', savedAt: new Date().toISOString() });
+    }
+    await S.saveProfile(profile);
+    if (session) session.profile = profile;
+    await loadCanon(profile);
+    f.match.raw = candidateValue(cand);
+    f.match.conflict = null;
+    const value = resolveValue(f);
+    const ok = value ? (await applyValue(f, value, { allowWeak: true })) === true : false;
+    setStatus(f, ok ? 'filled' : 'needs', ok ? preview(currentValueText(f)) + ' · your pick, saved' : 'Saved your pick, but couldn’t fill it');
+    renderPanel();
   }
 
   // One pass over the form: scan every field, then fill. With onlyNew, fields handled by an
@@ -2835,6 +3000,8 @@
         S.getAiSettings(),
       ]);
       siteFields = saved.fields;
+      await loadCanon(profile);
+      canonUsed = [];
       if (opts && opts.learn && !saved.learning) {
         await S.setSiteLearning(location.origin, true);
         Object.assign(saved, { learning: true, steps: [] });
@@ -2891,6 +3058,8 @@
       s.found += first.handled.size;
       // A cover letter you saved for this application goes into its cover letter field.
       if (s.found) await fillCoverLetter(root, profile, false);
+      // Canonical answers used: "last used" and the wordings they were asked in.
+      S.noteCanonUse(canonUsed.splice(0)).catch(() => {});
       if (!s.found) {
         if (stopWatching) stopWatching();
         if (stepWatcher) stepWatcher();
@@ -2934,6 +3103,7 @@
     const [profile, answerSettings] = await Promise.all([S.getProfile(), S.getAnswerSettings()]);
     if (session || running) return; // a fill started meanwhile
     siteFields = saved.fields;
+    await loadCanon(profile);
     session = {
       site: findRoot().site,
       profile,
