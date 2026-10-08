@@ -44,6 +44,7 @@
       "lib/ai.js",
       "lib/research.js",
       "lib/letterCheck.js",
+      "lib/canonical.js",
       "background.js"
     ]
   },

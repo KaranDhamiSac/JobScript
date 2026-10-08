@@ -6,7 +6,7 @@
 
 // Chrome runs this file as a service worker and loads helpers with importScripts; Firefox lists
 // them before this file in manifest.json "background.scripts".
-if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/research.js', 'lib/letterCheck.js');
+if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/research.js', 'lib/letterCheck.js', 'lib/canonical.js');
 
 const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'lib/dateRules.js', 'lib/canonical.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js'];
 const CONTENT_CSS = ['content/autofill.css'];
@@ -368,6 +368,27 @@ async function letterIntoTab(msg) {
   return { ok: true, attached: done.reduce((n, f) => n + f.attached, 0), pasted: done.reduce((n, f) => n + f.pasted, 0) };
 }
 
+// A question the keyword rules couldn't classify, asked by the content script when you answer
+// it. Only with AI answers turned on; each wording is asked about once (cached in storage).
+async function classifyQuestion(msg) {
+  const wording = String(msg.wording || '').trim().slice(0, 500);
+  if (!wording) return { ok: false, error: 'No question.' };
+  const cached = await JobScriptStorage.getQuestionClass(wording);
+  if (cached) return { ok: true, type: cached.type, key: cached.key, cached: true };
+  const settings = await JobScriptStorage.getAiSettings();
+  if (!settings.enabled) return { ok: false, error: 'AI answers are off.' };
+  const access = await aiAccess();
+  if (!access.ok) return access;
+  const canonical = JobScriptCanonical.QUESTIONS.map((q) => ({ key: q.key, label: q.label, type: q.type }));
+  const options = Array.isArray(msg.options) ? msg.options.map(String) : [];
+  const res = await JobScriptAI.classifyQuestion({ apiKey: access.apiKey, wording, options, canonical });
+  if (!res.ok) return res;
+  // A generic or changing question outside the built-in list gets its own canonical key.
+  const key = res.type === 'job' ? '' : res.key || JobScriptCanonical.customKey(res.label || wording);
+  await JobScriptStorage.saveQuestionClass(wording, { type: res.type, key, by: 'claude' });
+  return { ok: true, type: res.type, key, label: res.label, cost: res.cost };
+}
+
 // ---------------------------------------------------------------------------
 // Learn mode. On a site you let JobScript run on (an optional permission for just that site,
 // asked for from the popup), the content script is registered to load with every page, so the
@@ -480,6 +501,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'fill-self') {
     if (!isOwnContentScript(sender)) return false;
     fillTab(sender.tab.id).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not fill this page.' }));
+    return true;
+  }
+  if (msg.type === 'classify-question') {
+    if (!isOwnContentScript(sender)) return false;
+    classifyQuestion(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not classify the question.' }));
     return true;
   }
   if (msg.type === 'letter-open' || msg.type === 'company-open') {
