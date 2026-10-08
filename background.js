@@ -121,6 +121,19 @@ function isTrustedSender(sender, pagePath) {
 // in the last few minutes, and only a few times per fill. The allowance lives in
 // storage.session, which content scripts can't read or write.
 
+// Every Claude call counts toward this month's spend, and none is made once the monthly cap
+// (set on the options page) is reached.
+JobScriptAI.setHooks({
+  beforeCall: async () => {
+    const [{ monthlyCap }, spend] = await Promise.all([JobScriptStorage.getAgentSettings(), JobScriptStorage.getAiSpend()]);
+    if (monthlyCap > 0 && spend.cost >= monthlyCap) {
+      return `You’ve reached this month’s Claude spending cap ($${monthlyCap.toFixed(2)}). Raise it on the options page to continue.`;
+    }
+    return '';
+  },
+  onUsage: (model, usage) => JobScriptStorage.addAiSpend(JobScriptAI.costOf(model, usage)),
+});
+
 const AI_ALLOWANCE_MS = 10 * 60 * 1000;
 const AI_CALLS_PER_FILL = 3;
 const ANTHROPIC_ORIGIN = 'https://api.anthropic.com/*';
