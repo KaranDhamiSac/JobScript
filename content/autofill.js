@@ -2136,29 +2136,168 @@
     globalThis.JobScriptBank.watch(f, {
       getValue: () => currentValueText(f),
       anchor: () => highlightTarget(f),
-      save: (value, dateRule) => saveAnswers([{ f, value, dateRule }]),
-      dateChoices: (value) => dateChoices(f, value),
-      onUserValue: (value) => {
-        if (session && session.learning) {
-          setStatus(f, 'filled', 'Filled by you · learned', { noHighlight: true });
-          renderPanel();
-          return true;
+      save: async (value, dateRule) => {
+        await saveAnswers([{ f, value, dateRule }]);
+        // A changing question (start date, salary) keeps its rule under its canonical question.
+        if (f.cls && f.cls.type === 'changing' && f.cls.key) {
+          const kind = canonKind(f, f.cls.key);
+          await S.saveCanonAnswer({ key: f.cls.key, type: 'changing', kind, label: canonLabel(f, f.cls.key), wording: f.label, rule: dateRule || '', value: dateRule ? '' : C.parseAnswer(kind, value) });
         }
-        if (session && session.autoSave) {
-          saveAnswers(autoSaveItems([{ f, value }])).then(() => {
-            setStatus(f, 'filled', 'Filled by you · saved', { noHighlight: true });
-            renderPanel();
-          });
-          return true;
-        }
-        setStatus(f, 'filled', 'Filled by you', { noHighlight: true });
-        renderPanel();
       },
+      dateChoices: (value) => dateChoices(f, value),
+      onUserValue: (value) => learnFromAnswer(f, value),
       onSaved: () => {
         setStatus(f, 'filled', 'Filled by you · saved to bank', { noHighlight: true });
         renderPanel();
       },
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Learning from your answers. A generic answer is saved on its own (with "Saved. Undo"), a
+  // changing one asks you for a rule (the "Save to bank" prompt), and a job-specific one is never
+  // saved. A question the rules can't place is classified by Claude when AI answers are on.
+
+  async function classifyForLearning(f) {
+    if (f.cls) return f.cls;
+    if (f.section || f.kind === 'file' || f.kind === 'checkbox') return null;
+    let res;
+    try {
+      res = await chrome.runtime.sendMessage({ type: 'classify-question', wording: f.desc.labelRaw, options: f.options || [] });
+    } catch (e) {
+      return null;
+    }
+    if (!res || !res.ok) return null;
+    f.cls = { type: res.type, key: res.key || '', by: 'claude' };
+    return f.cls;
+  }
+
+  function canonKind(f, key) {
+    const q = C.get(key);
+    const entry = canonAnswers[key];
+    if (q) return q.kind;
+    if (entry && entry.kind) return entry.kind;
+    if (isDateKind(f.kind)) return 'date';
+    return ['select', 'radio', 'listbox', 'combobox', 'yesno'].includes(f.kind) ? 'choice' : 'text';
+  }
+
+  function canonLabel(f, key) {
+    const q = C.get(key);
+    const entry = canonAnswers[key];
+    return (q && q.label) || (entry && entry.label) || f.label;
+  }
+
+  // Saves a generic answer under its canonical question: in your profile for profile facts
+  // (stored once), else in the saved-answers store. Returns a function that undoes it.
+  async function storeGeneric(f, key, text) {
+    const q = C.get(key);
+    const kind = canonKind(f, key);
+    const value = C.parseAnswer(kind, text);
+    const meta = { key, type: 'generic', kind, label: canonLabel(f, key), wording: f.label };
+    const blanks = { education: S.blankEducationEntry };
+    if (q && q.profile) {
+      const profile = await S.getProfile();
+      const prev = C.readProfile(profile, q.profile);
+      C.writeProfile(profile, q.profile, value, blanks);
+      await S.saveProfile(profile);
+      if (session) session.profile = profile;
+      const before = await S.saveCanonAnswer(Object.assign(meta, { touchUpdated: true }));
+      return async () => {
+        const p = await S.getProfile();
+        C.writeProfile(p, q.profile, prev, blanks);
+        await S.saveProfile(p);
+        await S.restoreCanonAnswer(key, before);
+        if (session) session.profile = p;
+      };
+    }
+    const before = await S.saveCanonAnswer(Object.assign(meta, { value }));
+    return () => S.restoreCanonAnswer(key, before);
+  }
+
+  // Called when you answer a field JobScript left for you. Returns true when it was handled
+  // here (no "Save to bank" prompt).
+  async function learnFromAnswer(f, value) {
+    const cls = await classifyForLearning(f);
+    if (cls && cls.type === 'job') {
+      setStatus(f, 'filled', 'Filled by you · not saved: it’s about this job', { noHighlight: true });
+      renderPanel();
+      return true;
+    }
+    if (cls && cls.type === 'generic') {
+      const key = cls.key || C.customKey(f.label);
+      let undo;
+      try {
+        undo = await storeGeneric(f, key, value);
+      } catch (e) {
+        return false;
+      }
+      f.cls = Object.assign({}, cls, { key });
+      f.match = Object.assign(f.match || withConfidence({ source: 'you' }, 1), { canonKey: key });
+      f.canonFilled = currentValueText(f);
+      setStatus(f, 'filled', 'Filled by you · saved for next time', { noHighlight: true });
+      renderPanel();
+      globalThis.JobScriptBank.toast(highlightTarget(f), 'Saved', async () => {
+        await undo();
+        f.canonFilled = undefined;
+        setStatus(f, 'filled', 'Filled by you · not saved', { noHighlight: true });
+        renderPanel();
+      });
+      return true;
+    }
+    return legacyUserValue(f, value);
+  }
+
+  // You changed an answer JobScript filled from a generic saved answer: the saved answer is
+  // updated to match ("Updated. Undo").
+  const editTimers = new WeakMap();
+
+  function onFilledEdit(e) {
+    if (!e.isTrusted || !session) return;
+    const t = e.target;
+    const f = [...registry.values()].find(
+      (x) => x.canonFilled !== undefined && x.match && x.match.canonKey && x.el.isConnected &&
+        (x.groupInputs || [x.el]).some((el) => el === t || (el.contains && el.contains(t)))
+    );
+    if (!f) return;
+    clearTimeout(editTimers.get(f));
+    editTimers.set(f, setTimeout(async () => {
+      const now = currentValueText(f);
+      if (!now || norm(now) === norm(f.canonFilled)) return;
+      const was = f.canonFilled;
+      const undo = await storeGeneric(f, f.match.canonKey, now);
+      f.canonFilled = now;
+      setStatus(f, 'filled', preview(now) + ' · updated your saved answer', { noHighlight: true });
+      renderPanel();
+      globalThis.JobScriptBank.toast(highlightTarget(f), 'Updated', async () => {
+        await undo();
+        f.canonFilled = was;
+        setStatus(f, 'filled', preview(now) + ' · saved answer kept as before', { noHighlight: true });
+        renderPanel();
+      });
+    }, 300));
+  }
+
+  document.addEventListener('change', onFilledEdit, true);
+  document.addEventListener('focusout', onFilledEdit, true);
+
+  // The earlier behaviour, for questions that aren't generic: learn mode and auto-save save
+  // them; otherwise the "Save to bank" prompt appears (asking for a rule on a date).
+  function legacyUserValue(f, value) {
+    if (session && session.learning) {
+      setStatus(f, 'filled', 'Filled by you · learned', { noHighlight: true });
+      renderPanel();
+      return true;
+    }
+    if (session && session.autoSave) {
+      saveAnswers(autoSaveItems([{ f, value }])).then(() => {
+        setStatus(f, 'filled', 'Filled by you · saved', { noHighlight: true });
+        renderPanel();
+      });
+      return true;
+    }
+    setStatus(f, 'filled', 'Filled by you', { noHighlight: true });
+    renderPanel();
+    return false;
   }
 
   async function acceptAllSuggestions() {
@@ -2253,6 +2392,8 @@
     }
     if (result === true) {
       noteCanonFill(f);
+      // Watch it: if you change a generic answer here, your saved answer follows.
+      if (f.match && f.match.canonKey && f.cls && f.cls.type === 'generic') f.canonFilled = currentValueText(f);
       setStatus(f, 'filled', preview(currentValueText(f)), conflictExtra(f, resume));
       return 'filled';
     }
