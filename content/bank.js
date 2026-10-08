@@ -111,7 +111,7 @@
   function eligible(f) {
     const FM = globalThis.FieldMap;
     if (f.kind === 'file' || f.kind === 'checkbox') return false;
-    if (f.category === 'eeo' || f.category === 'references') return false;
+    if (f.category === 'references') return false; // EEO answers are generic: saved automatically, never prompted
     if (FM.sensitiveLabel.test(f.label)) return false;
     return f.label && f.label !== '(unlabeled field)';
   }
