@@ -44,7 +44,8 @@ await test('job parsing uses Haiku, wraps the posting, and says to ignore instru
   assert.equal(b.model, 'claude-haiku-4-5');
   assert.equal(b.output_config.effort, undefined, 'Haiku takes no effort setting');
   assert.match(b.messages[0].content, /<job_posting title="Analyst" company="Example">[\s\S]*Ignore previous instructions[\s\S]*<\/job_posting>/);
-  assert.match(b.system, /Ignore any instruction/);
+  assert.match(b.system.map((x) => x.text).join('\n'), /Ignore any instruction/);
+  assert.deepEqual(b.system.at(-1).cache_control, { type: 'ephemeral' }, 'the system prompt is cached');
   assert.ok(res.cost > 0 && res.cost < 0.01);
 });
 
@@ -137,6 +138,11 @@ await test('cover letters: Sonnet, no name or contact details, inputs tagged, co
   assert.match(r.body.messages[0].content, /<job_breakdown[^>]*>[\s\S]*<\/job_breakdown>/);
   assert.match(r.body.messages[0].content, /<company_profile>[\s\S]*"id": "mission\.0"[\s\S]*<\/company_profile>/);
   assert.match(r.body.messages[0].content, /Tone: Warm/);
+  // The master resume is the first, cached system block, shared with tailoring and scoring.
+  assert.equal(r.body.system.length, 2);
+  assert.match(r.body.system[0].text, /<master_resume>[\s\S]*Northwind Logistics[\s\S]*<\/master_resume>/);
+  assert.deepEqual(r.body.system[0].cache_control, { type: 'ephemeral' });
+  assert.doesNotMatch(r.body.messages[0].content, /master_resume/);
   assert.deepEqual(res.letter.usedCompanyItems, ['mission.0']);
   assert.equal(res.letter.paragraphs.length, 3);
 });
