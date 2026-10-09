@@ -39,11 +39,16 @@
     });
   }
 
-  // The fake Messages API.
-  const realFetch = window.fetch;
+  // The fake Messages API. Installed again at each run, since some sites replace window.fetch
+  // after load (and the proxy's guard would then block the call).
   let step = 0;
-  window.fetch = async (url, opts) => {
-    if (!String(url).includes('api.anthropic.com')) return realFetch(url, opts);
+  function installFakeApi() {
+    if (window.fetch.__agentFake) return;
+    const pageFetch = window.fetch;
+    window.fetch = Object.assign(fakeFetch(pageFetch), { __agentFake: true });
+  }
+  const fakeFetch = (pageFetch) => async (url, opts) => {
+    if (!String(url).includes('api.anthropic.com')) return pageFetch(url, opts);
     const body = JSON.parse(opts.body);
     window.__agentRequests.push(body);
     if (opts.signal && opts.signal.aborted) throw Object.assign(new Error('aborted'), { name: 'AbortError' });
@@ -53,10 +58,12 @@
     const data = { model: body.model, stop_reason: content.some((b) => b.type === 'tool_use') ? 'tool_use' : 'end_turn', content, usage };
     return { ok: true, status: 200, json: async () => data };
   };
+  installFakeApi();
 
   async function start(msg) {
     if (current) return { ok: false, error: 'The agent is already running in this tab.' };
     step = 0;
+    installFakeApi();
     const run = { runId: msg.runId, controller: new AbortController() };
     current = run;
     const send = (m) => toPage(Object.assign({ runId: run.runId }, m));
