@@ -210,6 +210,17 @@ $('preview').addEventListener('click', async () => {
   setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
 });
 
+// For applications with a cover letter text box: the letter as plain text, with the sign-off.
+$('copy').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(fullText());
+    setStatus('Copied. Paste it into the application’s cover letter box.');
+  } catch (e) {
+    $('letter').select();
+    setStatus('Couldn’t copy automatically; the letter is selected, so press Ctrl+C (⌘C on a Mac).');
+  }
+});
+
 $('save').addEventListener('click', async () => {
   if (await save()) setStatus(`Saved ${fileName()} with this application. It goes into the cover letter field the next time you fill it.`);
 });
