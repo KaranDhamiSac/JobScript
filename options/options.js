@@ -691,6 +691,28 @@ S.getPanelSettings().then((s) => {
 autoShow.addEventListener('change', () => S.savePanelSettings({ autoShow: autoShow.checked }));
 showButton.addEventListener('change', () => S.savePanelSettings({ showButton: showButton.checked }));
 
+// Every site: asks for access to all sites within the click (browsers only allow it then);
+// background.js registers or removes the Job tab's read-only scripts to match.
+const ALL_SITES = { origins: ['https://*/*'] };
+const anySite = document.getElementById('any-site');
+const anySiteStatus = document.getElementById('any-site-status');
+Promise.all([S.getPanelSettings(), chrome.permissions.contains(ALL_SITES)]).then(([s, granted]) => {
+  anySite.checked = s.anySite && granted;
+});
+anySite.addEventListener('change', () => {
+  if (!anySite.checked) {
+    S.savePanelSettings({ anySite: false });
+    chrome.permissions.remove(ALL_SITES).catch(() => {});
+    anySiteStatus.textContent = 'Off.';
+    return;
+  }
+  chrome.permissions.request(ALL_SITES).then((granted) => {
+    anySite.checked = granted;
+    S.savePanelSettings({ anySite: granted });
+    anySiteStatus.textContent = granted ? 'On. Reload open careers pages to see the button.' : 'Access wasn’t granted, so this stays off.';
+  });
+});
+
 const autoSave = document.getElementById('auto-save');
 S.getAnswerSettings().then((s) => {
   autoSave.checked = s.autoSave;

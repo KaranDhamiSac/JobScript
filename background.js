@@ -820,8 +820,40 @@ chrome.permissions.onRemoved.addListener(({ origins }) => {
   }
 });
 
-chrome.runtime.onInstalled.addListener(() => syncSiteScripts());
-chrome.runtime.onStartup.addListener(() => syncSiteScripts());
+// "Find job postings on every site": the Job tab's read-only scripts on every https page the
+// manifest doesn't already cover, while the setting is on and access to all sites is granted.
+const ANY_SITE_ID = 'jobs:any-site';
+const ALL_SITES = 'https://*/*';
+
+async function syncAnySiteScript() {
+  const [{ anySite }, granted, existing] = await Promise.all([
+    JobScriptStorage.getPanelSettings(),
+    chrome.permissions.contains({ origins: [ALL_SITES] }),
+    chrome.scripting.getRegisteredContentScripts({ ids: [ANY_SITE_ID] }),
+  ]);
+  const want = anySite && granted;
+  if (want && !existing.length) {
+    const builtIn = chrome.runtime.getManifest().content_scripts.flatMap((cs) => cs.matches);
+    await chrome.scripting.registerContentScripts([{ id: ANY_SITE_ID, matches: [ALL_SITES], excludeMatches: builtIn, js: JOB_FILES, runAt: 'document_idle', allFrames: false }]);
+  } else if (!want && existing.length) {
+    await chrome.scripting.unregisterContentScripts({ ids: [ANY_SITE_ID] });
+  }
+}
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && changes.panelSettings) syncAnySiteScript().catch(() => {});
+});
+if (chrome.permissions.onAdded) chrome.permissions.onAdded.addListener(() => syncAnySiteScript().catch(() => {}));
+chrome.permissions.onRemoved.addListener(() => syncAnySiteScript().catch(() => {}));
+
+chrome.runtime.onInstalled.addListener(() => {
+  syncSiteScripts();
+  syncAnySiteScript().catch(() => {});
+});
+chrome.runtime.onStartup.addListener(() => {
+  syncSiteScripts();
+  syncAnySiteScript().catch(() => {});
+});
 
 // Messages from our own content scripts carry sender.tab; page scripts can't send these at all.
 function isOwnContentScript(sender) {

@@ -29,6 +29,7 @@ const created = [];
 const tabs = new Map([[7, { id: 7, index: 2, url: 'https://www.linkedin.com/jobs/view/4012345678/', windowId: 1 }], [8, { id: 8, index: 3, url: 'https://job-boards.greenhouse.io/northwind/jobs/4012345007', windowId: 1 }]]);
 let granted = true;
 let injected = [];
+const registered = [];
 globalThis.chrome = {
   runtime: { id: 'ext', onMessage: on('message'), onInstalled: on('installed'), onStartup: on('startup'), getURL: (p) => 'chrome-extension://ext/' + p, getManifest: () => ({ content_scripts: [] }), openOptionsPage: async () => {} },
   storage: { local: area(store), session: area(session), onChanged: on('changed') },
@@ -42,7 +43,10 @@ globalThis.chrome = {
   commands: { onCommand: on('command') },
   scripting: {
     executeScript: async ({ files, func }) => { if (files) injected.push(...files); return func ? [] : []; },
-    insertCSS: async () => {}, getRegisteredContentScripts: async () => [], registerContentScripts: async () => {}, unregisterContentScripts: async () => {},
+    insertCSS: async () => {},
+    getRegisteredContentScripts: async ({ ids } = {}) => registered.filter((r) => !ids || ids.includes(r.id)),
+    registerContentScripts: async (list) => { registered.push(...list); },
+    unregisterContentScripts: async ({ ids }) => { for (const id of ids) registered.splice(registered.findIndex((r) => r.id === id), 1); },
   },
   action: { setBadgeBackgroundColor: async () => {}, setBadgeText: async () => {} },
 };
@@ -194,6 +198,24 @@ await test('without an API key, analyze says so and makes no call', async () => 
   const res = await send({ type: 'job-analyze', url: 'https://www.indeed.com/viewjob?jk=zzz999' }, fromTab(7));
   assert.equal(res.ok, false);
   assert.equal(apiCalls.length, before);
+});
+
+await test('every site: read-only Job tab scripts are registered only while the setting is on and access is granted', async () => {
+  granted = false;
+  await S.savePanelSettings({ anySite: true });
+  await listeners.changed({ panelSettings: { newValue: { anySite: true } } }, 'local');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(registered.length, 0, 'no access to all sites yet');
+  granted = true;
+  await listeners.permRemoved({ origins: [] }); // any permission change re-checks
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(registered.length, 1);
+  assert.deepEqual(registered[0].js, ['lib/storage.js', 'lib/jobDetect.js', 'content/panel.js', 'content/jobtab.js']);
+  assert.deepEqual(registered[0].matches, ['https://*/*']);
+  await S.savePanelSettings({ anySite: false });
+  await listeners.changed({ panelSettings: { newValue: { anySite: false } } }, 'local');
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(registered.length, 0);
 });
 
 console.log(`\n${passed} tests passed`);
