@@ -1,0 +1,130 @@
+<!doctype html>
+<!-- Job detection tests: loads each page in dev/fixtures/ in an iframe (so text is laid out as on
+     the real site) and runs lib/jobDetect.js on it with the site's real URL.
+     From the repo root: python3 -m http.server 8765 --bind 127.0.0.1
+     then open http://127.0.0.1:8765/dev/test-detect.html. window.__results has the outcome. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>JobScript detection tests</title>
+  <style>
+    body { font: 13px/1.4 system-ui, sans-serif; margin: 16px; }
+    .pass { color: #15803d; } .fail { color: #b91c1c; font-weight: 600; }
+    iframe { width: 900px; height: 300px; position: absolute; left: -10000px; }
+    pre { white-space: pre-wrap; margin: 2px 0 8px 16px; color: #555; }
+  </style>
+  <script>window.chrome = { storage: { local: {} } };</script>
+  <script src="../lib/storage.js"></script>
+  <script src="../lib/jobDetect.js"></script>
+</head>
+<body>
+<h1>Job detection</h1>
+<ul id="out"></ul>
+<script>
+  // [fixture, the URL the page would have, expected fields (string = exact, RegExp = match, null = no job)]
+  const CASES = [
+    ['linkedin-job-view.html', 'https://www.linkedin.com/jobs/view/data-analyst-at-northwind-4012345678/', {
+      site: 'LinkedIn', readOnly: true, title: 'Data Analyst', company: 'Northwind Logistics', location: 'Sacramento, CA',
+      jobId: '4012345678', url: 'https://www.linkedin.com/jobs/view/4012345678/', pay: /\$75K\/yr - \$95K\/yr/, applyUrl: '',
+      description: /Tableau dashboards[\s\S]*authorized to work/, source: 'site' }],
+    ['linkedin-guest.html', 'https://www.linkedin.com/jobs/view/junior-software-engineer-at-example-robotics-4098765432', {
+      site: 'LinkedIn', title: 'Junior Software Engineer', company: 'Example Robotics', location: 'Austin, TX', jobId: '4098765432',
+      pay: /\$85,000\.00\/yr - \$105,000\.00\/yr/, applyUrl: 'https://job-boards.greenhouse.io/examplerobotics/jobs/7012345001', description: /Secret security clearance/ }],
+    ['linkedin-search.html', 'https://www.linkedin.com/jobs/search-results/?keywords=analyst&currentJobId=4011112222', {
+      site: 'LinkedIn', title: 'Operations Analyst', company: 'Contoso Health', jobId: '4011112222',
+      url: 'https://www.linkedin.com/jobs/view/4011112222/', pay: '$60,000 - $72,000 per year', description: /patient scheduling/ }],
+    ['linkedin-feed.html', 'https://www.linkedin.com/feed/', null],
+    ['indeed-viewjob.html', 'https://www.indeed.com/viewjob?jk=a1b2c3d4e5f60718&from=serp', {
+      site: 'Indeed', readOnly: true, title: 'Junior Data Engineer', company: 'Fabrikam Foods', location: 'Fresno, CA 93721',
+      jobId: 'a1b2c3d4e5f60718', url: 'https://www.indeed.com/viewjob?jk=a1b2c3d4e5f60718', pay: '$70,000 - $85,000 a year',
+      applyUrl: 'https://jobs.lever.co/fabrikam/0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0', description: /U\.S\. citizenship required/ }],
+    ['indeed-search.html', 'https://www.indeed.com/jobs?q=analyst&l=Sacramento%2C+CA&vjk=f0e1d2c3b4a59687', {
+      site: 'Indeed', title: 'Program Analyst', company: 'County of Example', jobId: 'f0e1d2c3b4a59687',
+      pay: '$28.50 - $34.75 per hour', applyUrl: '' }],
+    ['glassdoor.html', 'https://www.glassdoor.com/job-listing/data-analyst-northwind-JV_IC1147401_KO0,12_KE13,22.htm?jl=1009456789012', {
+      site: 'Glassdoor', readOnly: true, title: 'Data Analyst', company: 'Northwind', location: 'Sacramento, CA', jobId: '1009456789012',
+      pay: /\$68K - \$92K/, description: /Power BI/ }],
+    ['handshake.html', 'https://app.joinhandshake.com/job-search/12345678', {
+      site: 'Handshake', readOnly: false, title: 'Software Engineering Intern', company: 'Contoso Analytics', location: 'San Francisco, CA',
+      jobId: '12345678', pay: '$45/hr', description: /React and TypeScript/ }],
+    ['greenhouse.html', 'https://job-boards.greenhouse.io/northwind/jobs/4012345007', {
+      site: 'Greenhouse', title: 'Associate Product Analyst', company: 'Northwind', location: 'New York, NY (Hybrid)', jobId: '4012345007',
+      pay: /\$90,000 - \$110,000/, applyHere: true, applyUrl: '', description: /A\/B tests/ }],
+    ['lever.html', 'https://jobs.lever.co/fabrikam/0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0', {
+      site: 'Lever', title: 'Junior Data Engineer', company: 'Fabrikam', location: 'Fresno, CA', jobId: '0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0',
+      pay: /\$80,000 - \$95,000/, applyUrl: 'https://jobs.lever.co/fabrikam/0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0/apply', description: /dbt/ }],
+    ['ashby.html', 'https://jobs.ashbyhq.com/contoso/2b3c4d5e-6f70-8192-a3b4-c5d6e7f8a9b0', {
+      site: 'Ashby', title: 'Frontend Engineer', company: 'Contoso', location: 'Seattle, WA', jobId: '2b3c4d5e-6f70-8192-a3b4-c5d6e7f8a9b0',
+      pay: /\$120K – \$150K/, applyUrl: 'https://jobs.ashbyhq.com/contoso/2b3c4d5e-6f70-8192-a3b4-c5d6e7f8a9b0/application', description: /accessibility/ }],
+    ['workday.html', 'https://northwind.wd5.myworkdayjobs.com/en-US/External/job/Fresno-CA/Data-Analyst_JR2026417', {
+      site: 'Workday', title: 'Data Analyst', company: 'Northwind Logistics', location: 'Fresno, CA', jobId: 'JR2026417',
+      pay: /\$72,000 - \$90,000/, applyUrl: /\/Data-Analyst_JR2026417\/apply$/, description: /5\+ years/ }],
+    ['icims.html', 'https://careers-northwind.icims.com/jobs/75314/data-analyst/job', {
+      site: 'iCIMS', title: 'Data Analyst', location: 'US-CA-Fresno', jobId: '75314', applyUrl: /mode=apply/, description: /Public Trust/ }],
+    ['smartrecruiters.html', 'https://jobs.smartrecruiters.com/Contoso/744000153262644-business-analyst', {
+      site: 'SmartRecruiters', title: 'Business Analyst', company: 'Contoso', location: /Chicago, IL/, jobId: '744000153262644',
+      applyUrl: /oneclick-ui/, description: /user stories/ }],
+    ['company-jsonld.html', 'https://careers.tailspin.example/positions/1234-it-support-specialist', {
+      site: 'careers.tailspin.example', source: 'jsonld', title: 'IT Support Specialist', company: 'Tailspin Toys', location: 'Portland, OR, US',
+      pay: '$24 - $30 per hour', jobId: /1234|TT-1234/, applyUrl: 'https://tailspin.example/apply/1234', description: /CompTIA A\+[\s\S]*/ }],
+    ['company-heuristic.html', 'https://www.wingtip.example/careers/marketing-coordinator', {
+      source: 'heuristic', title: 'Marketing Coordinator', company: 'Wingtip Partners', pay: '$52,000 - $60,000 per year',
+      applyUrl: 'https://www.wingtip.example/careers/marketing-coordinator/apply', description: /Google Analytics/ }],
+    ['not-a-job.html', 'https://blog.example.com/2026/10/how-to-write-a-resume', null],
+  ];
+
+  function load(file) {
+    return new Promise((resolve) => {
+      const f = document.createElement('iframe');
+      f.onload = () => resolve(f);
+      f.src = 'fixtures/' + file;
+      document.body.appendChild(f);
+    });
+  }
+
+  function check(got, want) {
+    if (want === null) return got === null ? [] : [`expected no job, got "${got.title}"`];
+    if (!got) return ['no job detected'];
+    const errors = [];
+    for (const [k, v] of Object.entries(want)) {
+      const g = got[k];
+      const ok = v instanceof RegExp ? v.test(String(g)) : g === v;
+      if (!ok) errors.push(`${k}: got ${JSON.stringify(g && String(g).slice(0, 160))}, want ${v}`);
+    }
+    return errors;
+  }
+
+  (async () => {
+    const results = [];
+    for (const [file, url, want] of CASES) {
+      const frame = await load(file);
+      let got;
+      let errors;
+      try {
+        got = JobScriptDetect.detect(frame.contentDocument, url);
+        errors = check(got, want);
+      } catch (e) {
+        errors = ['threw: ' + e.message];
+      }
+      results.push({ file, ok: !errors.length, errors });
+      const li = document.createElement('li');
+      li.className = errors.length ? 'fail' : 'pass';
+      li.textContent = `${errors.length ? 'FAIL' : 'ok'} - ${file}`;
+      if (errors.length) {
+        const pre = document.createElement('pre');
+        pre.textContent = errors.join('\n');
+        li.appendChild(pre);
+      }
+      document.getElementById('out').appendChild(li);
+      frame.remove();
+    }
+    const passed = results.filter((r) => r.ok).length;
+    const h = document.createElement('p');
+    h.className = passed === results.length ? 'pass' : 'fail';
+    h.textContent = `${passed} of ${results.length} passed`;
+    document.body.insertBefore(h, document.getElementById('out'));
+    window.__results = { passed, total: results.length, failures: results.filter((r) => !r.ok) };
+  })();
+</script>
+</body>
+</html>
