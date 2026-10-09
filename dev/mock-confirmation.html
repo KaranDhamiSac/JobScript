@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- A Greenhouse-style confirmation page after submitting, for checking that JobScript recognizes
+     it (JobScriptFill.looksConfirmed() is true here and false on dev/mock-form.html). On the real
+     site background.js then marks the application filled in that tab as Applied. -->
+<html lang="en"><head><meta charset="utf-8"><title>Thank you for applying | Northwind</title>
+<script src="stub.js"></script>
+<script>window.chrome.runtime = { sendMessage: async (m) => { (window.__sent = window.__sent || []).push(m); return { ok: true, marked: true, status: 'Applied', title: 'Data Analyst', company: 'Northwind' }; } };</script>
+<script src="../lib/storage.js"></script>
+<script src="../lib/fieldMap.js"></script>
+<script src="../lib/dateRules.js"></script>
+<script src="../lib/canonical.js"></script>
+<script src="../lib/jobDetect.js"></script>
+<script src="../content/panel.js"></script>
+<script src="../content/bank.js"></script>
+<script src="../content/autofill.js"></script>
+</head>
+<body>
+<main>
+  <h1>Thank you for applying.</h1>
+  <p>Your application has been received. We'll review it and get back to you.</p>
+  <p><a href="/">Back to jobs</a></p>
+</main>
+</body></html>
