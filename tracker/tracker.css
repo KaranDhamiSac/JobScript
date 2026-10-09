@@ -158,3 +158,4 @@ button.cell:focus-visible, button.cell:hover { outline: 1px solid var(--fg); out
 .progress.met #progress-bar { background: var(--heat-4); }
 .goal { display: inline-flex; align-items: center; gap: 6px; }
 .goal input { width: 56px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--input-bg); color: var(--fg); font: inherit; }
+.score { font-weight: 700; font-variant-numeric: tabular-nums; }

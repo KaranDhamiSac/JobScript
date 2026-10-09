@@ -126,6 +126,12 @@
     return b;
   }
 
+  // The match score from the Job tab, with its one-line reason on hover.
+  function scoreCell(app) {
+    if (!Number.isFinite(app.score)) return el('span', { class: 'muted', text: '—' });
+    return el('span', { class: 'score', text: String(app.score), title: app.scoreReason || '' });
+  }
+
   function newestFirst(list) {
     return list.slice().sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
   }
@@ -141,6 +147,7 @@
           el('td', {}, [companyCell(app)]),
           el('td', {}, [roleLink(app)]),
           el('td', { class: 'id', text: app.jobId || '', title: app.jobId || '' }),
+          el('td', {}, [scoreCell(app)]),
           el('td', {}, [statusSelect(app)]),
           el('td', {}, [resumeCell(app)]),
           el('td', {}, [letterCell(app)]),
@@ -158,9 +165,10 @@
   }
 
   $('export-csv').addEventListener('click', () => {
-    const rows = [['Filled', 'Applied', 'Company', 'Job title', 'Job ID', 'URL', 'Site', 'Status', 'Resume']];
+    const rows = [['Added', 'Applied', 'Company', 'Job title', 'Job ID', 'URL', 'Site', 'Location', 'Pay', 'Status', 'Match score', 'Score reason', 'Resume', 'Cover letter']];
     for (const a of newestFirst(apps)) {
-      rows.push([a.createdAt, a.appliedAt || '', a.company, a.title, a.jobId, a.url, a.site, a.status, a.tailoredFileName || 'Master']);
+      rows.push([a.createdAt, a.appliedAt || '', a.company, a.title, a.jobId, a.url, a.site, a.location || '', a.pay || '', a.status,
+        Number.isFinite(a.score) ? a.score : '', a.scoreReason || '', a.tailoredFileName || 'Master', a.coverLetterAt ? 'Yes' : '']);
     }
     const csv = rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
     saveBlob(new Blob([csv], { type: 'text/csv' }), `jobscript-applications-${TrackerStats.dayKey(new Date())}.csv`);
