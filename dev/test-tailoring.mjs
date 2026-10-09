@@ -89,4 +89,38 @@ await test('without a breakdown or company profile, tailoring still works', asyn
   assert.equal(res.tailored.summary, 'Analytics intern skilled in SQL and Tableau.');
 });
 
+await test('validator: metrics must match, no tools outside your resume, locked bullets stay, titles stay', () => {
+  const T = AI._test;
+  const json = {
+    jobKeywords: ['dbt'], skills: ['Python', 'Kubernetes', 'SQL'], summary: '',
+    jobs: [{ id: 'j0', title: 'Operations Data Analyst Intern', bullets: [
+      { sourceId: 'j0b0', text: 'Built Tableau dashboards that cut weekly reporting time by 45%' },
+      { sourceId: 'j0b1', text: 'Wrote SQL and dbt models to track 1,200 daily deliveries' },
+    ] }],
+    projects: [],
+  };
+  const t = T.enforceTailoring(profile, json, { parsed, role: 'Data Analyst' });
+  const [b0, b1] = t.jobs[0].bullets;
+  assert.equal(b0.text, profile.workHistory[0].bullets[0]);
+  assert.match(b0.note, /number changed/);
+  assert.equal(b1.text, profile.workHistory[0].bullets[1]);
+  assert.match(b1.note, /dbt/);
+  assert.ok(!t.skills.includes('Kubernetes'), 'skills only from the master list');
+  assert.equal(t.jobs[0].title, 'Operations Analyst Intern', 'the title never changes by itself');
+
+  const locked = T.enforceTailoring(profile, { ...json, jobs: [{ id: 'j0', title: '', bullets: [{ sourceId: 'j0b1', text: 'Queried 1,200 daily deliveries with SQL' }] }] }, { locks: [profile.workHistory[0].bullets[1]] });
+  assert.equal(locked.jobs[0].bullets[0].text, profile.workHistory[0].bullets[1]);
+  assert.equal(locked.jobs[0].bullets[0].locked, true);
+  assert.match(locked.jobs[0].bullets[0].note, /you locked/);
+});
+
+await test('title suggestions: the posting’s words for the same role only', () => {
+  const { titleSuggestion } = AI._test;
+  assert.equal(titleSuggestion('Software Engineering Intern', 'Software Engineer Intern', 'Software Engineer Intern'), 'Software Engineer Intern');
+  assert.equal(titleSuggestion('Software Engineering Intern', 'Software Engineer', 'Software Engineer'), '', 'dropping "Intern" raises the level');
+  assert.equal(titleSuggestion('Analyst Intern', 'Senior Analyst', 'Senior Data Analyst'), '');
+  assert.equal(titleSuggestion('Software Engineer', 'Data Engineer', 'Software Engineer'), '', '"Data" is in neither title');
+  assert.equal(titleSuggestion('Student Assistant', 'Student Assistant', 'Help Desk Assistant'), '', 'same title: nothing to suggest');
+});
+
 console.log(`\n${passed} tests passed`);
