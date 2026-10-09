@@ -138,4 +138,20 @@ await test('a posting keeps location, pay, job ID and apply link, and a re-scrap
   assert.equal(p.applyUrl, 'https://jobs.lever.co/fabrikam/abc');
 });
 
+await test('documents made for a job are found from its employer page, by company and title', async () => {
+  const li = 'https://www.linkedin.com/jobs/view/4055555555/';
+  await S.saveJob({ url: li, company: 'Contoso', title: 'QA Analyst', jobId: '4055555555' });
+  await S.updateApplication(li, { tailoredId: 't1', tailoredFileName: 'Testy_McTestface_Contoso.pdf' });
+  store['tailored:t1'] = { name: 'Testy_McTestface_Contoso.pdf', data: 'JVBERi0=', type: 'application/pdf' };
+  await S.saveLetter(li, { text: 'Dear team' });
+  const docs = await S.jobDocuments({ url: 'https://jobs.lever.co/contoso/11111111-2222-3333-4444-555555555555/apply', company: 'Contoso', title: 'QA Analyst' });
+  assert.equal(docs.by, 'company and title');
+  assert.equal(docs.tailored.name, 'Testy_McTestface_Contoso.pdf');
+  assert.equal(docs.letter.text, 'Dear team');
+  const none = await S.jobDocuments({ url: 'https://jobs.lever.co/contoso/x', company: 'Contoso', title: 'Data Engineer' });
+  assert.equal(none.tailored, null);
+  assert.equal(none.letter, null);
+  assert.deepEqual(await S.getFillSettings(), { resumeFallback: 'master' });
+});
+
 console.log(`\n${passed} tests passed`);
