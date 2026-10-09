@@ -4,8 +4,8 @@
 DEV="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$DEV")"
 {
-  echo "delete globalThis.__jobscriptFill; delete globalThis.JobScriptAgentUI;"
-  cat "$DEV/stub.js" "$ROOT/lib/storage.js" "$ROOT/lib/fieldMap.js" "$ROOT/lib/dateRules.js" "$ROOT/lib/canonical.js"
+  echo "delete globalThis.__jobscriptFill; delete globalThis.JobScriptAgentUI; delete globalThis.JobScriptJobTab; delete globalThis.JobScriptDetect;"
+  cat "$DEV/stub.js" "$ROOT/lib/storage.js" "$ROOT/lib/fieldMap.js" "$ROOT/lib/dateRules.js" "$ROOT/lib/canonical.js" "$ROOT/lib/jobDetect.js"
   # Agent mode with a scripted Claude in place of background.js (see dev/agent-harness.js).
   cat "$ROOT/lib/ai.js" "$ROOT/lib/agent.js" "$DEV/agent-harness.js"
   # Let the proxied site's rules apply on 127.0.0.1 (the proxy sets window.__jsTargetSite).
@@ -13,6 +13,8 @@ ROOT="$(dirname "$DEV")"
   # Open shadow roots, so tests can read the panel (document.querySelector('jobscript-panel').shadowRoot).
   sed "s/mode: 'closed'/mode: 'open'/" "$ROOT/content/panel.js" "$ROOT/content/bank.js"
   cat "$ROOT/content/autofill.js" "$ROOT/content/agent.js"
+  # The Job tab, with scripted answers for its background messages (see dev/job-harness.js).
+  cat "$DEV/job-harness.js" "$ROOT/content/jobtab.js"
   printf '\n(function(){var s=document.getElementById("jobscript-test-css")||document.head.appendChild(Object.assign(document.createElement("style"),{id:"jobscript-test-css"}));s.textContent=%s;})();\n' \
     "$(python3 -c 'import json,sys;print(json.dumps(open(sys.argv[1]).read()))' "$ROOT/content/autofill.css")"
 } > "$DEV/bundle.js"
