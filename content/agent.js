@@ -239,6 +239,34 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Your contact details never reach Claude. It works with placeholders ({{email}}), which are
+  // expanded here when it types; your values on the page are shown to it as the same placeholders.
+
+  const CONTACT_KEYS = ['firstName', 'lastName', 'email', 'phone', 'address', 'city', 'state', 'zip', 'linkedin', 'github', 'portfolio'];
+
+  function contactValues() {
+    const session = F.getSession();
+    const p = (session && session.profile) || {};
+    return CONTACT_KEYS.map((k) => [k, String(p[k] || '').trim()]).filter(([, v]) => v);
+  }
+
+  function unmask(text) {
+    const values = new Map(contactValues());
+    return String(text).replace(/\{\{(\w+)\}\}/g, (m, k) => (values.has(k) ? values.get(k) : m));
+  }
+
+  function mask(text) {
+    let out = String(text || '');
+    // Longest first, so "Sacramento, CA" goes before "CA". Two-letter values (a state) only as a
+    // whole word.
+    for (const [k, v] of contactValues().sort((a, b) => b[1].length - a[1].length)) {
+      const escaped = v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      out = out.replace(new RegExp(v.length < 4 ? `\\b${escaped}\\b` : escaped, 'gi'), `{{${k}}}`);
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------------------
   // Asking you, in the panel
 
   function askInPanel(prompt) {
@@ -393,7 +421,7 @@
     async fill_field({ ref, value }) {
       const { f, error } = fieldOf(ref);
       if (error) return { error };
-      const text = String(value == null ? '' : value);
+      const text = unmask(String(value == null ? '' : value));
       const refusal = refuseWrite(f, text);
       if (refusal) return { refused: refusal, label: f.label };
       if (!text.trim()) return { error: 'Empty value. To leave a field blank, just skip it.' };
@@ -407,7 +435,7 @@
     async select_option({ ref, option }) {
       const { f, error } = fieldOf(ref);
       if (error) return { error };
-      const text = String(option == null ? '' : option);
+      const text = unmask(String(option == null ? '' : option));
       const refusal = refuseWrite(f, text);
       if (refusal) return { refused: refusal, label: f.label };
       if (f.kind === 'checkbox') return { error: 'Use check for a checkbox.' };
@@ -572,13 +600,13 @@
     if (!run || run.stopped || res.stopped) return { text: 'Stopped by the user.', isError: true, stopped: true };
     if (res.refused) {
       log(`Refused: ${quote(res.label || name, 60)}`, 'refused');
-      return { text: 'Refused. ' + res.refused, isError: true, url: location.href };
+      return { text: mask('Refused. ' + res.refused), isError: true, url: location.href };
     }
     if (res.error) {
       log(res.error, 'error');
-      return { text: res.error, isError: true, url: location.href };
+      return { text: mask(res.error), isError: true, url: location.href };
     }
-    return { text: res.text, done: !!res.done, url: location.href };
+    return { text: mask(res.text), done: !!res.done, url: location.href };
   }
 
   // ---------------------------------------------------------------------------
@@ -599,7 +627,7 @@
     redraw();
     let res;
     try {
-      res = await chrome.runtime.sendMessage({ type: 'agent-start', runId: run.id, job: F.jobInfo(), snapshot: snapshot().text });
+      res = await chrome.runtime.sendMessage({ type: 'agent-start', runId: run.id, job: F.jobInfo(), snapshot: mask(snapshot().text) });
     } catch (e) {
       res = { ok: false, error: /context invalidated/i.test(String(e && e.message)) ? 'JobScript was updated since this page loaded. Refresh the page and try again.' : 'Couldn’t reach JobScript.' };
     }

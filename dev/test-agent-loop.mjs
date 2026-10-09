@@ -125,9 +125,13 @@ await test('the cached prefix is identical across requests in a run and across r
   assert.deepEqual(reqs[1].body.messages.slice(0, 1), reqs[0].body.messages);
 });
 
-await test('applicant data includes contact details and saved answers, never self-ID answers', async () => {
+await test('applicant data has contact placeholders and saved answers, never contact values or self-ID answers', async () => {
   const data = Agent._test.applicantData(profile, canonAnswers, canonical);
-  assert.equal(data.contact.email, 'testy@example.com');
+  assert.equal(data.contact.email, '{{email}}');
+  const sent = JSON.stringify(data);
+  for (const v of [profile.email, profile.phone, profile.firstName, profile.lastName, profile.address, profile.linkedin].filter(Boolean)) {
+    assert.ok(!sent.includes(v), `contact value ${v} is never sent`);
+  }
   assert.ok(!JSON.stringify(data).includes('Female'));
   assert.ok(!JSON.stringify(data).includes('Asian'));
   assert.ok(!data.canonicalAnswers.some((a) => /hispanic/i.test(a.question)));
