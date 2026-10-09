@@ -325,7 +325,6 @@
   function draw() {
     if (!state && !jobView) return;
     if (!jobView) activeTab = 'apply';
-    if (!state && !jobView.applyFallback) activeTab = 'job';
     mode = 'panel';
     ensureHost();
     const panel = el('div', { class: 'panel' + (ui.collapsed ? ' collapsed' : ''), role: 'complementary', 'aria-label': 'JobScript' });
@@ -333,7 +332,8 @@
     if (jobView) panel.appendChild(drawTabs());
     if (activeTab === 'job' || !state) {
       const body = el('div', { class: 'body' });
-      const blocks = activeTab === 'job' ? jobView.blocks : jobView.applyFallback;
+      const blocks = activeTab === 'job' ? jobView.blocks
+        : jobView.applyFallback || [{ kind: 'note', text: 'Nothing filled on this page yet. Press Apply on the Job tab, or Fill this page in the toolbar popup.' }];
       body.appendChild(drawBlocks(blocks || [], activeTab === 'job' ? 'Job' : 'Apply'));
       panel.appendChild(body);
       const old = shadow.querySelector('.job');

@@ -138,7 +138,9 @@
   async function apply() {
     const c = current;
     const p = c.posting;
-    if (p.applyHere && typeof globalThis.__jobscriptFill === 'function') {
+    // The form is on this page (Greenhouse, a careers page): fill it here. On a page without the
+    // fill loaded, JobScript loads it first.
+    if (p.applyHere && !p.readOnly) {
       P.openTab('apply');
       const res = await ask({ type: 'fill-self' });
       if (!res.ok) {
