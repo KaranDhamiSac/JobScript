@@ -6,7 +6,10 @@
 // Usage from content/autofill.js:
 //   JobScriptPanel.render({ summary, note, items, onSelect })
 //   items: [{ id, category, label, status: 'filled'|'suggested'|'needs', detail, required,
-//             draft, actions: [{ label, primary, onClick }] }]
+//             draft, actions: [{ label, primary, onClick }], ask }]
+//   ask (optional, on a field that needs you): an answer box in the panel
+//     { kind: 'text'|'textarea'|'date'|'select', options: [strings], scopes: bool,
+//       scope: 'all'|'site'|'', draft, onSubmit(value, scope) }
 //   emptyText (optional): shown instead of "No fields found." when items is empty
 //   details (optional): { title, lines: [strings] }, a short read-only block (the company)
 //   warning (optional): one line shown above everything else, e.g. another autofill extension
@@ -127,6 +130,19 @@
     .btn.stop { border-color: var(--needs); color: var(--needs); font-weight: 600; }
     .agent label { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); cursor: pointer; }
     .row select { grid-column: 2; margin-top: 3px; font: inherit; font-size: 12px; max-width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; }
+    .ask { grid-column: 2; display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; align-items: center; }
+    .ask input, .ask select, .ask textarea { font: inherit; font-size: 12px; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); max-width: 100%; }
+    .ask input[type=text], .ask textarea, .ask .answer { flex: 1 1 100%; }
+    .ask textarea { min-height: 60px; resize: vertical; }
+    .checklist { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    .checklist-head { display: flex; align-items: center; gap: 8px; }
+    .checklist-head strong { flex: 1; font-size: 12px; }
+    .checklist ul { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+    .checklist li { font-size: 12px; display: grid; grid-template-columns: 16px 1fr; gap: 4px; overflow-wrap: anywhere; }
+    .checklist li .mark { font-weight: 700; }
+    .checklist li.ok .mark { color: var(--filled); }
+    .checklist li.bad .mark { color: var(--needs); }
+    .checklist li .sub { grid-column: 2; color: var(--muted); }
     .tabs { display: flex; border-bottom: 1px solid var(--border); }
     .tabs button { flex: 1; padding: 7px 0; background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); font-weight: 600; }
     .tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
@@ -300,6 +316,7 @@
     }
     node.appendChild(detail);
     if (item.draft) node.appendChild(el('div', { class: 'draft', text: item.draft }));
+    if (item.ask) node.appendChild(renderAsk(item));
     if (item.actions && item.actions.length) {
       const bar = el('div', { class: 'actions' });
       for (const a of item.actions) {
@@ -320,6 +337,64 @@
       node.appendChild(bar);
     }
     return node;
+  }
+
+  // "Needs your info": answer a field here, with an input of the field's kind, and choose where
+  // the answer is saved. What you type is kept on the item, so a redraw doesn't lose it.
+  function renderAsk(item) {
+    const a = item.ask;
+    const wrap = el('div', { class: 'ask', role: 'group', 'aria-label': 'Your answer to ' + item.label });
+    let input;
+    if (a.kind === 'select') {
+      input = el('select', { class: 'answer', 'aria-label': 'Your answer to ' + item.label });
+      input.append(new Option('Choose…', ''));
+      for (const o of a.options || []) input.append(new Option(o, o));
+    } else if (a.kind === 'textarea') {
+      input = el('textarea', { class: 'answer', 'aria-label': 'Your answer to ' + item.label });
+    } else {
+      input = el('input', { class: 'answer', type: a.kind === 'date' ? 'date' : 'text', 'aria-label': 'Your answer to ' + item.label });
+    }
+    input.value = a.draft || '';
+    const keep = () => { a.draft = input.value; };
+    input.addEventListener('input', keep);
+    input.addEventListener('change', keep);
+    wrap.appendChild(input);
+    let scope = null;
+    if (a.scopes) {
+      scope = el('select', { 'aria-label': 'Where to save this answer' });
+      scope.append(new Option('Save for all sites', 'all'), new Option('Save for this site', 'site'), new Option('Don’t save', ''));
+      scope.value = a.scope === undefined ? 'all' : a.scope;
+      scope.addEventListener('change', () => { a.scope = scope.value; });
+      wrap.appendChild(scope);
+    }
+    const go = el('button', { type: 'button', class: 'btn primary', text: 'Fill', 'aria-label': 'Fill ' + item.label + ' with your answer' });
+    go.addEventListener('click', trusted(async () => {
+      const value = String(input.value || '').trim();
+      if (!value) return input.focus();
+      go.disabled = true;
+      try {
+        await a.onSubmit(value, scope ? scope.value : '');
+      } finally {
+        if (go.isConnected) go.disabled = false;
+      }
+    }));
+    wrap.appendChild(go);
+    return wrap;
+  }
+
+  // The pre-submit checklist: { title, items: [{ ok, text, detail }], onClose }.
+  function drawChecklist(c) {
+    const box = el('section', { class: 'checklist', 'aria-label': c.title });
+    box.appendChild(el('div', { class: 'checklist-head' }, [
+      el('strong', { text: c.title }),
+      el('button', { class: 'icon', type: 'button', text: '×', title: 'Hide the checklist', 'aria-label': 'Hide the checklist', onclick: trusted(() => c.onClose()) }),
+    ]));
+    box.appendChild(el('ul', null, c.items.map((it) => el('li', { class: it.ok ? 'ok' : 'bad' }, [
+      el('span', { class: 'mark', 'aria-hidden': 'true', text: it.ok ? '✓' : '!' }),
+      el('span', { text: (it.ok ? '' : 'Check: ') + it.text }),
+      it.detail ? el('span', { class: 'sub', text: it.detail }) : null,
+    ]))));
+    return box;
   }
 
   function draw() {
@@ -397,6 +472,7 @@
     // Plain-text result of the last fill ("Filled 12 of 15. Needs you: …"), read aloud on change.
     body.appendChild(el('div', { class: 'note fill-summary', role: 'status', 'aria-live': 'polite', text: state.summaryText || '' }));
     body.appendChild(el('div', { class: 'note', text: state.note || '' }));
+    if (state.checklist) body.appendChild(drawChecklist(state.checklist));
     if (state.agent) body.appendChild(drawAgent(state.agent));
     if (state.details && state.details.lines.length) {
       body.appendChild(

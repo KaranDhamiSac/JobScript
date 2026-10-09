@@ -1791,6 +1791,7 @@
     const agentUi = globalThis.JobScriptAgentUI;
     const agentAction = agentUi && agentUi.toolbarAction();
     if (agentAction) actions.push(agentAction);
+    actions.push({ label: 'Check before submit', ariaLabel: 'Check the application before you submit it', onClick: preSubmitCheck });
     globalThis.JobScriptPanel.render({
       agent: agentUi ? agentUi.panelState() : null,
       summaryText: fillSummaryText(fields),
@@ -1799,6 +1800,7 @@
       note: session.note,
       footerActions: footerActions(),
       review: session.review,
+      checklist: session.checklist || null,
       toolbarActions: actions,
       onSelect: focusField,
       items: fields.map((f) => ({
@@ -1809,9 +1811,180 @@
         detail: f.detail,
         required: f.required,
         draft: f.draft,
-        actions: f.actions,
+        actions: f.actions && f.actions.length ? f.actions : askable(f) ? [{ label: f.asking ? 'Hide' : 'Answer here', onClick: () => toggleAsk(f) }] : [],
+        ask: f.asking && askable(f) ? askFor(f) : undefined,
       })),
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // "Needs your info": answer a field JobScript couldn't fill right in the panel, with an input
+  // of the field's kind, and choose whether the answer is saved for all sites, this site, or not.
+
+  function askable(f) {
+    return (
+      f.status === 'needs' && !f.prefilled && f.el.isConnected &&
+      !['file', 'checkbox', 'datesections'].includes(f.kind) &&
+      !(f.category === 'eeo' && !f.required) && !FM.sensitiveLabel.test(f.label) && !AI_EXCLUDE_LABEL.test(f.label)
+    );
+  }
+
+  function toggleAsk(f) {
+    f.asking = !f.asking;
+    renderPanel();
+  }
+
+  function askFor(f) {
+    if (!f.ask) {
+      const options = optionTexts(f);
+      const kind = options.length && ['select', 'radio', 'yesno', 'checkboxGroup', 'listbox', 'combobox', 'prompt'].includes(f.kind) ? 'select'
+        : isDateKind(f.kind) ? 'date' : f.kind === 'textarea' ? 'textarea' : 'text';
+      const job = f.cls && f.cls.type === 'job';
+      f.ask = {
+        kind,
+        options,
+        // Answers about this job are never reused, so there's nothing to save.
+        scopes: !job && saveable(f),
+        scope: f.cls && f.cls.type === 'generic' ? 'all' : f.cls && f.cls.type === 'changing' ? 'all' : 'site',
+        onSubmit: (value, scope) => answerFromPanel(f, value, scope),
+      };
+    }
+    return f.ask;
+  }
+
+  async function answerFromPanel(f, value, scope) {
+    let ok = false;
+    try {
+      ok = (await applyValue(f, { text: value, hint: {} }, { allowWeak: true })) === true;
+    } catch (e) {
+      ok = false;
+    }
+    if (!ok) {
+      setStatus(f, 'needs', 'Couldn’t put that into this field; answer it on the page');
+      renderPanel();
+      return;
+    }
+    globalThis.JobScriptBank.unwatch(f);
+    f.asking = false;
+    f.ask = null;
+    const shown = currentValueText(f) || value;
+    let saved = '';
+    if (scope && saveable(f)) {
+      if (scope === 'site') {
+        await saveSiteAnswer(f, shown);
+        saved = ' · saved for this site';
+      } else {
+        const cls = await classifyForLearning(f);
+        if (cls && cls.type === 'generic') await storeGeneric(f, cls.key || C.customKey(f.label), shown);
+        else await saveAnswers([{ f, value: shown }]);
+        saved = ' · saved for all sites';
+      }
+    }
+    setStatus(f, 'filled', preview(shown) + ' · answered in JobScript' + saved);
+    renderPanel();
+  }
+
+  // This site only: kept for this field here, not offered on other sites.
+  async function saveSiteAnswer(f, value) {
+    const entry = { key: f.siteKey, label: f.label, kind: f.kind, answer: answerToSave(f, value), dateRule: '', profileKey: '' };
+    await S.saveSiteAnswers(location.origin, [entry]);
+    siteFields[f.siteKey] = { answer: entry.answer, dateRule: '', profileKey: '' };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Pre-submit checklist: required fields answered, the right resume and cover letter attached,
+  // no placeholder text left in, and no answer that disagrees with your profile. It only reads
+  // the form; JobScript never presses Submit.
+
+  const PLACEHOLDER_TEXT = /\[[^\]]{0,30}\b(company|company name|name|your name|role|position|job title|title|hiring manager|insert|date|school)\b[^\]]{0,30}\]|\{\{[^}]{1,40}\}\}|<(company|name|role|position)>|lorem ipsum|\bTODO\b|\bTBD\b|\bX{3,}\b/i;
+  const MAX_LISTED = 6;
+
+  function listed(labels) {
+    const more = labels.length > MAX_LISTED ? `, and ${labels.length - MAX_LISTED} more` : '';
+    return labels.slice(0, MAX_LISTED).join(', ') + more;
+  }
+
+  async function expectedResumeName() {
+    if (session.tailoredId) {
+      const t = await S.getTailored(session.tailoredId);
+      if (t) return t.name;
+    }
+    if (session.resumeSource === 'master') {
+      const m = await S.getResume();
+      return m ? m.name : '';
+    }
+    return '';
+  }
+
+  async function preSubmitCheck() {
+    if (!session) return;
+    const fields = analyze(findRoot().root, session.profile).map((f) => {
+      const known = registry.get(f.id);
+      return known && known.el === f.el ? known : f;
+    });
+    const items = [];
+
+    const empty = fields.filter((f) => isRequired(f) && isEmpty(f) && f.kind !== 'file').map((f) => f.label);
+    items.push(empty.length
+      ? { ok: false, text: `${empty.length} required field${empty.length === 1 ? ' is' : 's are'} empty`, detail: listed(empty) }
+      : { ok: true, text: 'Every required field has an answer' });
+
+    const resumeFields = fields.filter((f) => f.kind === 'file' && f.match && f.match.key === 'resume');
+    if (resumeFields.length) {
+      const f = resumeFields[0];
+      const name = currentValueText(f);
+      const want = await expectedResumeName();
+      if (!name && !attachmentShown(f.el)) items.push({ ok: false, text: 'No resume attached', detail: want ? `The resume for this job is ${want}.` : 'Attach one before you submit.' });
+      else if (name && want && name !== want) items.push({ ok: false, text: `The attached resume is ${name}`, detail: `The resume for this job is ${want}.` });
+      else items.push({ ok: true, text: `Resume attached${name ? `: ${name}` : ''}` });
+    }
+
+    const letter = session.letter || (await S.getLetter(location.href));
+    const coverFields = fields.filter((f) => (f.kind === 'file' || f.kind === 'textarea') && COVER_LETTER_RE.test([f.label, f.desc.labelRaw, f.desc.context].join(' ')));
+    for (const f of coverFields.slice(0, 1)) {
+      const value = currentValueText(f);
+      if (!value && !(f.kind === 'file' && attachmentShown(f.el))) {
+        items.push({ ok: !isRequired(f), text: isRequired(f) ? 'The cover letter field is empty' : 'The cover letter field is empty (optional)', detail: letter ? 'Your letter for this job is saved; Fill this page puts it in.' : 'Write cover letter on the Job tab makes one.' });
+      } else if (f.kind === 'file' && letter && letter.pdf && value && value !== letter.pdf.name) {
+        items.push({ ok: false, text: `The attached cover letter is ${value}`, detail: `The letter for this job is ${letter.pdf.name}.` });
+      } else {
+        items.push({ ok: true, text: 'Cover letter in place' });
+      }
+    }
+
+    const placeholders = fields.filter((f) => (f.kind === 'text' || f.kind === 'textarea') && PLACEHOLDER_TEXT.test(currentValueText(f))).map((f) => f.label);
+    items.push(placeholders.length
+      ? { ok: false, text: 'Placeholder text is still in', detail: listed(placeholders) }
+      : { ok: true, text: 'No placeholder text like [Company] or {{name}}' });
+
+    // Answers JobScript knows from your profile or saved answers that now say something else.
+    const differ = [];
+    for (const f of fields) {
+      if (!f.match || f.match.tier !== 'high' || !f.match.raw || ['file', 'checkbox', 'textarea'].includes(f.kind) || f.section) continue;
+      const now = currentValueText(f);
+      if (!now || now.length > 80) continue;
+      let want = '';
+      try {
+        want = previewValue(f);
+      } catch (e) {
+        want = '';
+      }
+      if (want && norm(want) !== norm(now)) differ.push(`${f.label}: “${preview(now)}”, your profile says “${preview(want)}”`);
+    }
+    items.push(differ.length
+      ? { ok: false, text: `${differ.length} answer${differ.length === 1 ? ' differs' : 's differ'} from your profile`, detail: listed(differ) }
+      : { ok: true, text: 'No answers contradict your profile' });
+
+    items.push({ ok: true, text: 'Submitting is yours: JobScript never presses Submit.' });
+    session.checklist = {
+      title: items.some((i) => !i.ok) ? 'Before you submit: a few things to check' : 'Before you submit: all clear',
+      items,
+      onClose: () => {
+        session.checklist = null;
+        renderPanel();
+      },
+    };
+    renderPanel();
   }
 
   // ---------------------------------------------------------------------------
