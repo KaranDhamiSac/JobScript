@@ -237,23 +237,54 @@ async function tailorWithAi(msg) {
   // The job breakdown (read once per job, with Haiku) steers the tailoring; the company profile,
   // if you've researched it, may shape the summary. Tailoring still works without either.
   const job = await ensureJobParse(session.posting.url, false, session.posting);
-  const company = await JobScriptStorage.getCompany(session.posting.company);
-  const res = await JobScriptAI.tailorResume({ apiKey, model: settings.model, profile, posting: session.posting, parsed: job.ok ? job.parsed : null, company });
+  const [company, locks] = await Promise.all([JobScriptStorage.getCompany(session.posting.company), JobScriptStorage.getTailorLocks()]);
+  const res = await JobScriptAI.tailorResume({ apiKey, model: settings.model, profile, posting: session.posting, parsed: job.ok ? job.parsed : null, company, locks });
   if (res.ok && job.ok && job.cost) res.cost = (res.cost || 0) + job.cost;
   return res;
+}
+
+// The match score before and after tailoring, for the review screen: "before" is your master
+// resume's score for this job (cached, or scored now), "after" scores the resume as it is on
+// screen. Both with Haiku, against the same requirements.
+async function tailorScore(msg) {
+  const session = await tailorSession(msg.sid);
+  if (!session) return { ok: false, error: 'This tailoring session expired.' };
+  const resume = msg.resume && typeof msg.resume === 'object' ? msg.resume : null;
+  if (!resume) return { ok: false, error: 'Nothing to score.' };
+  const url = session.posting.url;
+  const job = await ensureJobParse(url, false, session.posting);
+  if (!job.ok) return job;
+  const access = await aiAccess();
+  if (!access.ok) return access;
+  const profile = await JobScriptStorage.getProfile();
+  const hash = resumeHash(profile);
+  let cost = job.cost || 0;
+  let before = await JobScriptStorage.getJobScore(url);
+  if (!before || before.resumeHash !== hash) {
+    const res = await JobScriptAI.scoreMatch({ apiKey: access.apiKey, profile, parsed: job.parsed, posting: session.posting });
+    if (!res.ok) return res;
+    cost += res.cost || 0;
+    before = await JobScriptStorage.saveJobScore(url, { resumeHash: hash, score: res.score, reason: res.reason, items: res.items, model: res.model || '' });
+  }
+  const after = await JobScriptAI.scoreMatch({ apiKey: access.apiKey, profile, parsed: job.parsed, posting: session.posting, resume: JSON.parse(JSON.stringify(resume).slice(0, 60000)) });
+  if (!after.ok) return after;
+  cost += after.cost || 0;
+  return { ok: true, before: before.score, beforeReason: before.reason, after: after.score, afterReason: after.reason, cost };
 }
 
 async function fillWithTailored(msg) {
   const session = await tailorSession(msg.sid);
   if (!session) return { ok: false, error: 'This tailoring session expired. Click Tailor & Fill again.' };
-  if (typeof msg.tailoredId !== 'string' || !(await JobScriptStorage.getTailored(msg.tailoredId))) {
-    return { ok: false, error: 'Tailored resume not found.' };
-  }
-  let tab;
-  try {
-    tab = await chrome.tabs.get(session.tabId);
-  } catch (e) {
-    return { ok: false, error: 'The job tab was closed.' };
+  const tailored = typeof msg.tailoredId === 'string' ? await JobScriptStorage.getTailored(msg.tailoredId) : null;
+  if (!tailored) return { ok: false, error: 'Tailored resume not found.' };
+  // From a job board (or a job page with no form): keep the resume with the job's tracker entry,
+  // so it's attached when you fill the employer's application.
+  const p = session.posting;
+  const tab = await chrome.tabs.get(session.tabId).catch(() => null);
+  if (!tab || JobScriptDetect.isReadOnlyBoard(tab.url || p.url) || msg.saveOnly) {
+    await JobScriptStorage.saveJob({ url: p.url, company: p.company, title: p.title, site: p.site, jobId: p.jobId });
+    await JobScriptStorage.updateApplication(p.url, { tailoredId: msg.tailoredId, tailoredFileName: tailored.name });
+    return { ok: true, saved: true, name: tailored.name };
   }
   await chrome.tabs.update(tab.id, { active: true });
   return fillTab(tab.id, { tailoredId: msg.tailoredId, folder: typeof msg.folder === 'string' ? msg.folder : '' });
@@ -915,6 +946,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'ai-tailor') {
     if (!isTrustedSender(sender, 'tailor/')) return false;
     tailorWithAi(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Something went wrong asking Claude.' }));
+    return true;
+  }
+  if (msg.type === 'tailor-score') {
+    if (!isTrustedSender(sender, 'tailor/')) return false;
+    tailorScore(msg).then(sendResponse, () => sendResponse({ ok: false, error: 'Could not score the resume.' }));
+    return true;
+  }
+  if (msg.type === 'tailor-lock') {
+    if (!isTrustedSender(sender, 'tailor/') || typeof msg.text !== 'string') return false;
+    JobScriptStorage.setTailorLock(msg.text, msg.locked === true).then(() => sendResponse({ ok: true }));
     return true;
   }
   if (msg.type === 'tailor-fill') {

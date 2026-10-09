@@ -125,3 +125,16 @@ button:disabled { opacity: 0.5; cursor: default; }
   .bullet textarea, .bullet .note { grid-column: 2; }
   .entry-head { grid-template-columns: auto 1fr; }
 }
+
+/* Match score before and after, bullet locks, title suggestions */
+.score-line { display: flex; align-items: center; gap: 10px; font-size: 15px; margin: 4px 0; }
+.score-pill { min-width: 44px; padding: 4px 10px; border-radius: 999px; border: 2px solid var(--border); text-align: center; font-weight: 700; }
+.score-pill.up { border-color: #16a34a; }
+.bullet .lock { grid-column: 3; justify-self: start; font-size: 12px; padding: 2px 8px; }
+.bullet.locked textarea { background: transparent; color: var(--muted); }
+.title-pick { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; margin: 0 0 6px 26px; padding: 6px 8px; border-left: 3px solid var(--border); }
+.title-pick .muted { font-size: 12px; }
+@media (max-width: 720px) {
+  .bullet .lock { grid-column: 2; }
+  .title-pick { margin-left: 0; }
+}

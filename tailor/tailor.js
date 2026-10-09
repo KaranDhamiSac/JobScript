@@ -60,12 +60,32 @@ function contactLine() {
 
 const entryGetters = { jobs: [], projects: [], education: [] };
 
+// A locked bullet stays exactly as in your master resume, here and every time you tailor.
+function lockButton(row, text, original, locked) {
+  const btn = h('button', { type: 'button', class: 'secondary lock', 'aria-pressed': String(!!locked) });
+  const show = (on) => {
+    btn.textContent = on ? '🔒 Locked' : 'Lock';
+    btn.setAttribute('aria-pressed', String(on));
+    btn.setAttribute('aria-label', on ? 'Unlock this bullet' : 'Lock this bullet: keep it exactly as in your master resume');
+    row.classList.toggle('locked', on);
+    text.readOnly = on;
+    if (on) text.value = original;
+  };
+  show(!!locked);
+  btn.addEventListener('click', async () => {
+    const on = btn.getAttribute('aria-pressed') !== 'true';
+    show(on);
+    await chrome.runtime.sendMessage({ type: 'tailor-lock', text: original, locked: on }).catch(() => {});
+  });
+  return btn;
+}
+
 function bulletRows(container, bullets) {
   container.append(h('div', { class: 'cols' }, [h('span', { text: '' }), h('span', { text: 'Your master bullet' }), h('span', { text: 'Tailored (editable)' })]));
   const rows = [];
   const addRow = (b) => {
-    const include = h('input', { type: 'checkbox', checked: b.include !== false });
-    const text = h('textarea', { value: b.text, rows: '2' });
+    const include = h('input', { type: 'checkbox', checked: b.include !== false, 'aria-label': 'Include this bullet' });
+    const text = h('textarea', { value: b.text, rows: '2', 'aria-label': 'Tailored bullet' });
     const cls = b.note && b.note.startsWith('Kept original') ? 'reverted' : b.text !== b.original ? 'changed' : '';
     const row = h('div', { class: 'bullet ' + cls }, [
       include,
@@ -73,6 +93,7 @@ function bulletRows(container, bullets) {
       text,
       b.note ? h('div', { class: 'note', text: b.note }) : null,
     ]);
+    row.append(lockButton(row, text, b.original, b.locked));
     include.addEventListener('change', () => row.classList.toggle('excluded', !include.checked));
     if (!include.checked) row.classList.add('excluded');
     container.append(row);
@@ -82,12 +103,29 @@ function bulletRows(container, bullets) {
   return { rows, addRow };
 }
 
-function renderEntry(container, { left, right, sub, subRight, bullets, unused }) {
+function renderEntry(container, { left, right, sub, subRight, bullets, unused, titlePick }) {
   const include = h('input', { type: 'checkbox', checked: true });
   const leftIn = h('input', { type: 'text', value: left });
   const rightIn = h('input', { type: 'text', value: right || '' });
   const subIn = h('input', { type: 'text', value: sub || '' });
   const card = h('div', { class: 'entry' }, [h('div', { class: 'entry-head' }, [include, leftIn, rightIn]), h('div', { class: 'entry-sub' }, [subIn])]);
+  // Your title and the posting's wording side by side; yours stays unless you pick the other.
+  if (titlePick) {
+    const use = h('button', { type: 'button', class: 'secondary', text: `Use “${titlePick.suggested}”` });
+    const pick = h('div', { class: 'title-pick', role: 'group', 'aria-label': 'Job title' }, [
+      h('span', { text: `Your title: ${titlePick.original}` }),
+      h('span', { class: 'muted', text: `Posting’s wording: ${titlePick.suggested}` }),
+      use,
+    ]);
+    let usingSuggested = false;
+    use.addEventListener('click', () => {
+      usingSuggested = !usingSuggested;
+      const [from, to] = usingSuggested ? [titlePick.original, titlePick.suggested] : [titlePick.suggested, titlePick.original];
+      if (leftIn.value.startsWith(from)) leftIn.value = to + leftIn.value.slice(from.length);
+      use.textContent = usingSuggested ? `Use “${titlePick.original}”` : `Use “${titlePick.suggested}”`;
+    });
+    card.append(pick);
+  }
   include.addEventListener('change', () => card.classList.toggle('excluded', !include.checked));
   const list = h('div');
   card.append(list);
@@ -120,6 +158,7 @@ function renderJob(t) {
       sub: j.location,
       bullets: t.bullets,
       unused: t.unused,
+      titlePick: t.titleSuggestion && j.title ? { original: j.title, suggested: t.titleSuggestion } : null,
     })
   );
 }
@@ -182,6 +221,53 @@ function renderReview() {
   $('summary').value = tailored.summary || '';
   $('summary-note').textContent = tailored.summaryNote || '';
 }
+
+// The resume on screen in the shape Claude scores (ids like the master resume's), for the
+// "after" score. Contact details aren't part of it.
+function resumeForScore() {
+  const entries = (getters, prefix) => getters.map((g) => g()).filter(Boolean).map((e, i) => ({
+    id: prefix + i,
+    heading: e.left,
+    dates: e.right,
+    detail: e.sub,
+    bullets: e.bullets.map((text, bi) => ({ id: `${prefix}${i}b${bi}`, text })),
+  }));
+  return {
+    summary: $('summary').value.trim(),
+    jobs: entries(entryGetters.jobs, 'j'),
+    projects: entries(entryGetters.projects, 'p'),
+    skills: $('skills').value.split(/,(?![^(]*\))/).map((x) => x.trim()).filter(Boolean),
+    education: profile.education.map((e) => ({ school: e.school, degree: e.degree, major: e.major })),
+  };
+}
+
+function showScore(el, value, better) {
+  el.textContent = Number.isFinite(value) ? String(value) : '–';
+  el.classList.toggle('up', !!better);
+}
+
+async function scoreBeforeAfter() {
+  const btn = $('rescore');
+  btn.disabled = true;
+  $('score-status').textContent = 'Scoring with Claude Haiku…';
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({ type: 'tailor-score', sid, resume: resumeForScore() });
+  } catch (err) {
+    res = { ok: false, error: String(err.message || err) };
+  }
+  btn.disabled = false;
+  if (!res || !res.ok) {
+    $('score-status').textContent = 'Couldn’t score: ' + ((res && res.error) || 'unknown error');
+    return;
+  }
+  showScore($('score-before'), res.before, false);
+  showScore($('score-after'), res.after, Number.isFinite(res.after) && Number.isFinite(res.before) && res.after > res.before);
+  $('score-status').textContent = res.cost ? `about $${res.cost.toFixed(3)}` : '';
+  $('score-reason').textContent = res.afterReason || res.beforeReason || '';
+}
+
+$('rescore').addEventListener('click', scoreBeforeAfter);
 
 // The resume exactly as approved on screen.
 function approvedResume() {
@@ -250,6 +336,13 @@ $('approve').addEventListener('click', async () => {
       setStatus(`Saved ${name}, but filling failed: ${(res && res.error) || 'unknown error'}`);
       return;
     }
+    if (res.saved) {
+      // Tailored from a job board or a page without the form: kept with the job in your tracker.
+      $('status-box').classList.add('done');
+      setStatus(`Saved ${name} with this job in your tracker. Press Apply on the job page; JobScript attaches it when it fills the employer’s application.`);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     $('status-box').classList.add('done');
     setStatus(`Done. Filled ${res.filled} of ${res.total} fields with ${name} attached. ${out.notes.join(' ')} Review the application tab before you submit; it's also in your Applications list.`);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -286,6 +379,7 @@ async function runTailor() {
       (reverted ? ` ${reverted} rewrite${reverted === 1 ? '' : 's'} broke a rule and ${reverted === 1 ? 'was' : 'were'} put back to your original (highlighted).` : '')
   );
   renderReview();
+  scoreBeforeAfter();
 }
 
 $('allow').addEventListener('click', () => {
@@ -313,6 +407,9 @@ async function init() {
   }
   profile = await S.getProfile();
   $('job-line').textContent = [session.posting.title, session.posting.company].filter(Boolean).join(' at ');
+  // From LinkedIn, Indeed or Glassdoor there's no form to fill here: approving saves the resume
+  // with the job, for when you apply on the employer's site.
+  if (JobScriptDetect.isReadOnlyBoard(session.posting.url)) $('approve').textContent = 'Approve & save for this job';
   document.title = `Tailor: ${session.posting.company || 'Resume'}`;
   if (!profile.workHistory.length && !profile.projects.length) {
     setStatus('Your master resume is empty. Import your resume in Options first.');

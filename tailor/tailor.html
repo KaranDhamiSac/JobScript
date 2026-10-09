@@ -26,6 +26,14 @@
     </section>
 
     <div id="review" hidden>
+      <section id="score-box">
+        <h2>Match score</h2>
+        <p class="score-line"><span id="score-before" class="score-pill">–</span> <span aria-hidden="true">→</span> <span id="score-after" class="score-pill">–</span> <span id="score-status" class="muted small" role="status"></span></p>
+        <p id="score-reason" class="muted small"></p>
+        <p class="muted small">Before: your master resume. After: the resume as it is on this screen. Both scored by Claude Haiku against the same requirements from the posting.</p>
+        <div class="row"><button id="rescore" type="button" class="secondary">Score my edits</button></div>
+      </section>
+
       <section>
         <h2>Keywords in this posting</h2>
         <p class="muted small">Missing ones are listed so you know the gap. JobScript never adds them; if you really have one, add it to your master resume in Options first.</p>
@@ -52,7 +60,7 @@
 
       <section>
         <h2>Experience</h2>
-        <p class="muted small">Left: your master bullet. Right: the tailored version, which you can edit. Untick anything to leave it out.</p>
+        <p class="muted small">Left: your master bullet. Right: the tailored version, which you can edit. Untick anything to leave it out. <strong>Lock</strong> a bullet to keep it exactly as written, now and every time you tailor. Employers, titles, dates and education never change by themselves; when the posting words your title differently, it's shown beside yours to pick.</p>
         <div id="jobs"></div>
       </section>
 
@@ -84,6 +92,7 @@
   </footer>
 
   <script src="../lib/storage.js"></script>
+  <script src="../lib/jobDetect.js"></script>
   <script type="module" src="tailor.js"></script>
 </body>
 </html>
