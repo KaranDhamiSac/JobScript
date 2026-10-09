@@ -138,6 +138,19 @@ await test('applicant data has contact placeholders and saved answers, never con
   assert.deepEqual(data.canonicalAnswers.map((a) => a.question), ['Available start date', 'How did you hear about us?']);
 });
 
+await test('the run stops after 20 page actions; reading and scrolling are free', async () => {
+  // One turn asking for 3 snapshot reads and 22 fills: 20 fills run, 2 don't.
+  const calls = [...Array.from({ length: 3 }, (_, i) => call('r' + i, 'read_snapshot', {})), ...Array.from({ length: 22 }, (_, i) => call('f' + i, 'fill_field', { ref: 'f1', value: 'x' }))];
+  mockApi([reply(calls)]);
+  const ran = [];
+  const res = await Agent.run(base({ execute: async (name) => { ran.push(name); return { text: 'OK.' }; } }));
+  assert.equal(res.ok, false);
+  assert.match(res.error, /Stopped after 20 actions/);
+  assert.equal(ran.filter((n) => n === 'fill_field').length, 20);
+  assert.equal(ran.filter((n) => n === 'read_snapshot').length, 3);
+  assert.equal(Agent.MAX_ACTIONS, 20);
+});
+
 await test('the run stops after the step limit and reports it', async () => {
   mockApi(Array.from({ length: 5 }, (_, i) => reply([call('t' + i, 'read_snapshot', {})])));
   const res = await Agent.run(base({ maxSteps: 3, execute: async () => ({ text: 'snap' }) }));
