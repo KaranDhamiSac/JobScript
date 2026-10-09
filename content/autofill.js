@@ -1963,13 +1963,18 @@
       if (!f.match || f.match.tier !== 'high' || !f.match.raw || ['file', 'checkbox', 'textarea'].includes(f.kind) || f.section) continue;
       const now = currentValueText(f);
       if (!now || now.length > 80) continue;
+      // Still what JobScript put in from your profile (a widget may show it differently, like a
+      // phone country picker showing "+1" for United States).
+      if (f.filledValue !== undefined && norm(f.filledValue) === norm(now)) continue;
       let want = '';
       try {
         want = previewValue(f);
       } catch (e) {
         want = '';
       }
-      if (want && norm(want) !== norm(now)) differ.push(`${f.label}: “${preview(now)}”, your profile says “${preview(want)}”`);
+      const a = norm(want);
+      const b = norm(now);
+      if (a && b && a !== b && !a.includes(b) && !b.includes(a)) differ.push(`${f.label}: “${preview(now)}”, your profile says “${preview(want)}”`);
     }
     items.push(differ.length
       ? { ok: false, text: `${differ.length} answer${differ.length === 1 ? ' differs' : 's differ'} from your profile`, detail: listed(differ) }
@@ -2571,6 +2576,7 @@
       return 'suggested';
     }
     if (result === true) {
+      f.filledValue = currentValueText(f); // what JobScript put in, for the pre-submit check
       noteCanonFill(f);
       // Watch it: if you change a generic answer here, your saved answer follows.
       if (f.match && f.match.canonKey && f.cls && f.cls.type === 'generic') f.canonFilled = currentValueText(f);
@@ -3612,7 +3618,7 @@
     applyValue, attachFile, fillCoverLetter, readComboOptions, readListboxOptions, highlightTarget,
     classifyWording, classifyForLearning, storeGeneric, saveAnswers, openReview, dateChoices, saveable,
     suggest, setStatus, preview, renderPanel, askForJobResume, watchBank, focusField,
-    ensureSession, renderIdle, looksConfirmed,
+    ensureSession, renderIdle, looksConfirmed, preSubmitCheck,
     getSession: () => session,
     registry,
     isRunning: () => running,
