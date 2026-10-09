@@ -43,6 +43,28 @@
     return p.url + '|' + p.title;
   }
 
+  // An application page (Lever /apply, Ashby /application) often hides the description: read it
+  // from the posting page with the fill's reader (a same-site fetch of the page without /apply).
+  let appPageTried = '';
+
+  async function fromApplicationPage() {
+    if (!/\/(apply|application)\/?$/.test(location.pathname) || appPageTried === location.href) return null;
+    if (typeof globalThis.JobScriptFill === 'undefined' || typeof globalThis.__jobscriptJobPosting !== 'function') return null;
+    appPageTried = location.href;
+    try {
+      const p = await globalThis.__jobscriptJobPosting();
+      if (!p || !p.title || String(p.description || '').length < 100) return null;
+      const jobId = S.jobIdFromUrl(location.href);
+      return {
+        title: p.title, company: p.company, location: '', pay: D.payFrom(p.description), jobId,
+        url: location.href, description: p.description, applyUrl: '', applyHere: true,
+        site: p.site, source: 'site', readOnly: false,
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+
   async function scan() {
     let posting = null;
     try {
@@ -50,6 +72,7 @@
     } catch (e) {
       posting = null;
     }
+    if (!posting && !current) posting = await fromApplicationPage();
     if (!posting) {
       if (current && Date.now() > lookUntil) clear();
       return;
