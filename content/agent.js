@@ -540,9 +540,8 @@
       return { text: `The user answered: ${quote(answer, 500)}` };
     },
 
-    done({ summary }) {
-      const text = String(summary || '').slice(0, 1000);
-      if (text) log(text, 'info');
+    // The summary is shown when the run ends (background.js sends it with the cost).
+    done() {
       return { text: 'OK.', done: true };
     },
   };
