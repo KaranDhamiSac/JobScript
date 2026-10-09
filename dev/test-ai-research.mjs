@@ -147,6 +147,28 @@ await test('cover letters: Sonnet, no name or contact details, inputs tagged, co
   assert.equal(res.letter.paragraphs.length, 3);
 });
 
+await test('AI answers and resume import never send your contact details', async () => {
+  const profile = {
+    firstName: 'Testy', lastName: 'McTestface', email: 'testy@example.com', phone: '(916) 555-0100', address: '1 Example St',
+    city: 'Sacramento', state: 'CA', zip: '95819', country: 'United States', linkedin: 'https://linkedin.com/in/testy-example', github: '', portfolio: '',
+    workAuthorized: 'yes', requiresSponsorship: 'no', willingToRelocate: 'yes', skills: 'SQL',
+    workHistory: [], projects: [], education: [], customAnswers: [{ question: 'Best number?', answer: '(916) 555-0100' }],
+  };
+  const resumeText = 'TESTY MCTESTFACE\ntesty@example.com | (916) 555-0100 | linkedin.com/in/testy-example\nAnalyst at Northwind';
+  let reqs = mockApi([textReply({ answers: [] }, { model: 'claude-sonnet-5-5' })]);
+  await AI.answerQuestions({ apiKey: 'k', model: 'claude-sonnet-5-5', profile, resumeText, request: { questions: [{ id: '1', question: 'Why us?', kind: 'essay', options: [] }], jobTitle: 'A', company: 'B', jobDescription: 'C' } });
+  let sent = JSON.stringify(reqs[0].body);
+  assert.doesNotMatch(sent, /Testy|McTestface|testy@example|555-0100|linkedin\.com|Sacramento|Example St/i);
+  assert.match(sent, /Northwind/);
+  assert.deepEqual(reqs[0].body.system[0].cache_control, { type: 'ephemeral' }, 'resume and profile are a cached block');
+
+  reqs = mockApi([textReply({ contact: { firstName: '[name]', lastName: '', email: '[email]', phone: '', address: '', city: '', state: '', zip: '', country: '', linkedin: '[link]', github: '', portfolio: '' }, workHistory: [], education: [], projects: [], skills: [] })]);
+  const res = await AI.parseResume({ apiKey: 'k', model: 'claude-sonnet-5-5', text: resumeText, contact: { firstName: 'Testy', lastName: 'McTestface' } });
+  sent = JSON.stringify(reqs[0].body);
+  assert.doesNotMatch(sent, /Testy|McTestface|testy@example|555-0100|linkedin\.com/i);
+  assert.deepEqual(res.draft.contact, {}, 'placeholders never come back as contact values');
+});
+
 await test('question classification: Haiku, tagged, unknown keys dropped, unsure means job', async () => {
   const reqs = mockApi([textReply({ type: 'generic', canonicalKey: 'general.made-up', label: 'Spanish fluency' }), textReply({ type: 'generic', canonicalKey: 'general.languages', label: 'Languages' })]);
   const canonical = [{ key: 'general.languages', label: 'Languages you speak', type: 'generic' }];

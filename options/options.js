@@ -587,12 +587,16 @@ async function importWithClaude() {
     if (!lines) return;
     if (!lines.length) return void (importStatus.textContent = NO_TEXT);
     importStatus.textContent = 'Claude is reading your resume…';
-    const res = await chrome.runtime.sendMessage({ type: 'ai-parse-resume', text: lines.join('\n') });
+    // Your name, email, phone, address and links are read here and taken out of the text before
+    // it's sent; Claude structures the rest.
+    const { contact } = parseResume(lines);
+    const res = await chrome.runtime.sendMessage({ type: 'ai-parse-resume', text: lines.join('\n'), contact });
     if (!res || !res.ok) {
       importStatus.textContent = `Claude couldn’t read it: ${(res && res.error) || 'unknown error.'} You can use Import on this device instead.`;
       return;
     }
     importStatus.textContent = '';
+    res.draft.contact = Object.assign({}, res.draft.contact, contact);
     showReview(res.draft, 'Claude');
   } catch (err) {
     importStatus.textContent = 'Could not import with Claude: ' + (err.message || err);

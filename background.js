@@ -174,8 +174,11 @@ async function parseResumeWithAi(msg) {
     return { ok: false, error: 'JobScript needs permission to reach api.anthropic.com.' };
   }
   const text = typeof msg.text === 'string' ? msg.text : '';
+  // Contact details found on your device, to take out of the text before it's sent.
+  const contact = {};
+  for (const k of JobScriptAI.CONTACT_KEYS) if (msg.contact && typeof msg.contact[k] === 'string') contact[k] = msg.contact[k].slice(0, 300);
   const settings = await JobScriptStorage.getAiSettings();
-  return JobScriptAI.parseResume({ apiKey, model: settings.model, text });
+  return JobScriptAI.parseResume({ apiKey, model: settings.model, text, contact });
 }
 
 // ---------------------------------------------------------------------------
