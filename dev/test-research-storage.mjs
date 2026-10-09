@@ -9,7 +9,9 @@ globalThis.chrome = {
     local: {
       async get(key) {
         if (key === null) return structuredClone(store);
-        return key in store ? { [key]: structuredClone(store[key]) } : {};
+        const out = {};
+        for (const k of [].concat(key)) if (k in store) out[k] = structuredClone(store[k]);
+        return out;
       },
       async set(obj) {
         Object.assign(store, structuredClone(obj));
@@ -89,6 +91,28 @@ await test('job descriptions are cached per job', async () => {
   const url = 'https://boards.greenhouse.io/example/jobs/98765';
   await S.saveJobParse(url, { roleSummary: 'Do data things' });
   assert.equal((await S.getJobParse(url + '?gh_jid=98765')).roleSummary, 'Do data things');
+});
+
+await test('saving a job makes a Saved entry; a fill later makes it Filled, never a duplicate', async () => {
+  const url = 'https://www.indeed.com/viewjob?jk=abc123def4567890';
+  const { app, created } = await S.saveJob({ url, company: 'Fabrikam', title: 'Engineer', site: 'Indeed', extra: { score: 87.4, scoreReason: 'Strong SQL match' } });
+  assert.equal(created, true);
+  assert.equal(app.status, 'Saved');
+  assert.equal(app.score, 87);
+  assert.equal((await S.saveJob({ url: url + '&from=serp', company: 'Fabrikam', title: 'Engineer' })).created, false);
+  await S.upsertApplication({ url, company: 'Fabrikam', title: 'Engineer', site: 'Indeed' });
+  const mine = (await S.getApplications()).filter((a) => a.key === S.applicationKey(url));
+  assert.equal(mine.length, 1);
+  assert.equal(mine[0].status, 'Filled');
+  assert.equal(mine[0].score, 87);
+  await S.setApplicationStatus(mine[0].id, 'Applied');
+  await S.setApplicationStatus(mine[0].id, 'Saved');
+  assert.equal((await S.getApplications()).find((a) => a.id === mine[0].id).appliedAt, undefined);
+});
+
+await test('postings saved under the old key (query string dropped) are still found', async () => {
+  store['posting:https://careers.example.com/open-roles'] = { url: 'https://careers.example.com/open-roles?gh_jid=111', description: 'old copy' };
+  assert.equal((await S.getPosting('https://careers.example.com/open-roles?gh_jid=111')).description, 'old copy');
 });
 
 console.log(`\n${passed} tests passed`);

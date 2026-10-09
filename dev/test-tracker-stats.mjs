@@ -21,12 +21,13 @@ test('dayKey uses local time, not UTC', () => {
   assert.equal(T.dayKey(new Date(2026, 9, 1, 0, 5)), '2026-10-01');
 });
 
-test('countsByDay splits applied and filled', () => {
+test('countsByDay splits applied and filled; saved jobs count as neither', () => {
   const apps = [
     { status: 'Applied', createdAt: at(2026, 9, 28), appliedAt: at(2026, 9, 29) },
     { status: 'Interviewing', createdAt: at(2026, 9, 29), appliedAt: at(2026, 9, 29, 23) },
     { status: 'Filled', createdAt: at(2026, 9, 29) },
     { status: 'Filled', createdAt: at(2026, 9, 30) },
+    { status: 'Saved', createdAt: at(2026, 9, 29) },
   ];
   const { applied, filled } = T.countsByDay(apps);
   assert.equal(applied.get('2026-09-29'), 2);

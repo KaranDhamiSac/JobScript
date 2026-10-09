@@ -164,7 +164,7 @@ async function showTodayProgress() {
     const x = new Date(iso);
     return x.getFullYear() === d.getFullYear() && x.getMonth() === d.getMonth() && x.getDate() === d.getDate();
   };
-  const applied = apps.filter((a) => a.status !== 'Filled' && sameDay(a.appliedAt || a.createdAt)).length;
+  const applied = apps.filter((a) => !JobScriptStorage.NOT_APPLIED.has(a.status) && sameDay(a.appliedAt || a.createdAt)).length;
   document.getElementById('today-progress').textContent = `Today: ${applied} / ${dailyGoal} applied`;
 }
 

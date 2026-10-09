@@ -19,7 +19,7 @@
 
   // { applied: Map(dayKey -> count), filled: Map(dayKey -> count) }
   // applied: entries marked Applied (or later), on the day they were marked.
-  // filled:  entries still at "Filled", on the day JobScript filled them.
+  // filled:  entries still at "Filled", on the day JobScript filled them. Saved jobs count as neither.
   function countsByDay(apps) {
     const applied = new Map();
     const filled = new Map();
@@ -29,6 +29,7 @@
       map.set(key, (map.get(key) || 0) + 1);
     };
     for (const app of apps) {
+      if (app.status === 'Saved') continue; // saved from a job page, not applied to yet
       if (app.status === 'Filled') bump(filled, app.createdAt);
       else bump(applied, app.appliedAt || app.createdAt);
     }
@@ -38,7 +39,8 @@
   // Applications for one local day: applied that day, plus filled-but-not-applied that day.
   function appsOnDay(apps, key) {
     return apps.filter((app) =>
-      app.status === 'Filled' ? dayKey(app.createdAt) === key : dayKey(app.appliedAt || app.createdAt) === key
+      app.status === 'Saved' ? false
+        : app.status === 'Filled' ? dayKey(app.createdAt) === key : dayKey(app.appliedAt || app.createdAt) === key
     );
   }
 
