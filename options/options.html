@@ -188,6 +188,17 @@
       <p class="muted small">Job boards and application sites JobScript knows (LinkedIn, Indeed, Glassdoor, Greenhouse, Lever, Workday and more) always work. This also looks for a job posting on other sites, so careers pages get the button and the Job tab. It needs access to all sites; it only reads pages, and nothing leaves your browser until you press a button. <span id="any-site-status"></span></p>
     </section>
 
+    <section id="uploads-section">
+      <h2>Resume uploads</h2>
+      <p class="muted">When an application asks for a resume, JobScript attaches the one you made for that job (with Tailor resume, or on the job description page), even if you made it on the job's LinkedIn or Indeed page. Its cover letter goes into the cover letter field the same way.</p>
+      <label>When there's no resume made for the job
+        <select id="resume-fallback">
+          <option value="master">Attach my master resume</option>
+          <option value="ask">Ask me first (make one for this job, or pick)</option>
+        </select>
+      </label>
+    </section>
+
     <section id="canon-section">
       <h2>Saved answers</h2>
       <p class="muted">Answers JobScript reuses, one per question however a form words it. <strong>Generic</strong> answers fill automatically; <strong>changing</strong> ones (start date, salary) are suggested from their rule; <strong>job-specific</strong> ones (“Why do you want to work here?”) are never reused. Answers that live in your profile above (phone, graduation date…) are edited here too.</p>

@@ -713,6 +713,12 @@ anySite.addEventListener('change', () => {
   });
 });
 
+const resumeFallback = document.getElementById('resume-fallback');
+S.getFillSettings().then((s) => {
+  resumeFallback.value = s.resumeFallback;
+});
+resumeFallback.addEventListener('change', () => S.saveFillSettings({ resumeFallback: resumeFallback.value }));
+
 const autoSave = document.getElementById('auto-save');
 S.getAnswerSettings().then((s) => {
   autoSave.checked = s.autoSave;

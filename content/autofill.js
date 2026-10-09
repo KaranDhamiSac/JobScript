@@ -2370,8 +2370,9 @@
       setStatus(f, 'filled', f.kind === 'file' ? 'A file is already attached' : 'Already had a value', { noHighlight: true });
       return 'already';
     }
-    // Your master resume fills in your details; the resume you send is one made for this job.
-    if (f.kind === 'file' && f.match && f.match.key === 'resume' && !session.tailoredId) {
+    // The resume made for this job goes in when there is one; otherwise your master resume, or
+    // (with "Ask me" on the options page, or no master resume saved) the panel asks.
+    if (f.kind === 'file' && f.match && f.match.key === 'resume' && session.resumeSource === 'ask') {
       askForJobResume(f, resume);
       return 'suggested';
     }
@@ -2527,10 +2528,11 @@
       needsAttention: c.needsRequired,
       alreadyFilled: c.alreadyFilled,
       total: c.filled + c.suggested + c.needs,
-      // For the application tracker.
+      // For the application tracker: the resume made for this job that went in, if one did.
       url: location.href,
       jobTitle: session.jobTitle,
       company: session.company,
+      tailoredId: session.resumeSource === 'tailor' || session.resumeSource === 'job' ? session.tailoredId : '',
     };
   }
 
@@ -3092,7 +3094,8 @@
 
   // replace: put it in even if the field already has something (you asked for it).
   async function fillCoverLetter(root, profile, replace) {
-    const letter = await S.getLetter(location.href);
+    // The letter written for this job, maybe from its LinkedIn or Indeed page.
+    const letter = (session && session.letter) || (await S.getLetter(location.href));
     if (!letter || !letter.text) return { found: 0, attached: 0, pasted: 0 };
     const fields = analyze(root, profile).filter((f) => {
       const text = [f.label, f.desc.labelRaw, f.desc.attrs, f.desc.context].join(' ');
@@ -3139,12 +3142,16 @@
     try {
       const tailoredId = opts && typeof opts.tailoredId === 'string' ? opts.tailoredId : '';
       const tailored = tailoredId ? await S.getTailored(tailoredId) : null;
-      const [profile, master, saved, answerSettings, aiSettings] = await Promise.all([
+      const job = titleAndCompany();
+      const [profile, master, saved, answerSettings, aiSettings, fillSettings, docs] = await Promise.all([
         S.getProfile(),
         tailored ? null : S.getResume(),
         S.getSiteAnswers(location.origin),
         S.getAnswerSettings(),
         S.getAiSettings(),
+        S.getFillSettings(),
+        // A resume or cover letter you made for this job, maybe on its LinkedIn or Indeed page.
+        S.jobDocuments({ url: location.href, company: job.company, title: job.title }).catch(() => null),
       ]);
       siteFields = saved.fields;
       await loadCanon(profile);
@@ -3153,7 +3160,9 @@
         await S.setSiteLearning(location.origin, true);
         Object.assign(saved, { learning: true, steps: [] });
       }
-      const resume = tailored || master;
+      const forJob = !tailored && docs && docs.tailored ? docs.tailored : null;
+      const resume = tailored || forJob || master;
+      const resumeSource = tailored ? 'tailor' : forJob ? 'job' : master && fillSettings.resumeFallback === 'master' ? 'master' : 'ask';
       // Pages that render their form after load (React apps) may not have fields yet.
       if (!collectFields(findRoot().root).length) await waitFor(() => collectFields(findRoot().root).length > 0, 3000);
       let { root, site } = findRoot();
@@ -3169,9 +3178,11 @@
         learning: saved.learning,
         steps: saved.steps,
         stepIndex: -1,
-        note: (tailored && !step ? `Attached your tailored resume (${tailored.name}). ` : '') + siteWarning() + DEFAULT_NOTE,
+        note: resumeNote(resumeSource, resume, step) + siteWarning() + DEFAULT_NOTE,
         forceResume: !!tailored && !step,
-        tailoredId,
+        tailoredId: tailoredId || (forJob ? docs.tailoredId : ''),
+        resumeSource,
+        letter: docs ? docs.letter : null,
         aiEnabled: !!aiSettings.enabled,
         stepPending: false,
         lastStep: step && session ? session.lastStep : null,
@@ -3240,6 +3251,15 @@
     }
   }
 
+  // What the panel says about the resume a fill uses.
+  function resumeNote(source, resume, step) {
+    if (step || !resume) return '';
+    if (source === 'tailor') return `Attached your tailored resume (${resume.name}). `;
+    if (source === 'job') return `Attaching the resume you made for this job (${resume.name}). `;
+    if (source === 'master') return `No resume made for this job yet, so your master resume (${resume.name}) goes in; Tailor resume on the Job tab makes one. `;
+    return '';
+  }
+
   // On a site you taught JobScript, or are teaching it, show the panel when the form loads,
   // without filling anything until you press "Fill this step".
   async function autoStart() {
@@ -3265,6 +3285,7 @@
       note: '',
       forceResume: false,
       tailoredId: '',
+      resumeSource: 'ask',
       stepPending: true,
       lastStep: null,
       review: null,
@@ -3350,6 +3371,7 @@
       note: siteWarning() + DEFAULT_NOTE,
       forceResume: false,
       tailoredId: '',
+      resumeSource: 'ask',
       aiEnabled: true,
       stepPending: false,
       lastStep: null,

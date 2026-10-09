@@ -86,13 +86,15 @@ async function fillTab(tabId, opts) {
 
   // Application tracker: one entry per job (same URL updates the existing entry).
   const withJob = done.find((f) => f.company || f.jobTitle) || done[0];
-  const tailored = opts && opts.tailoredId ? await JobScriptStorage.getTailored(opts.tailoredId) : null;
+  // Tailor & Fill's resume, or one made for this job earlier that the fill found and attached.
+  const tailoredId = (opts && opts.tailoredId) || (done.find((f) => f.tailoredId) || {}).tailoredId || '';
+  const tailored = tailoredId ? await JobScriptStorage.getTailored(tailoredId) : null;
   await JobScriptStorage.upsertApplication({
     url: withJob.url,
     company: withJob.company,
     title: withJob.jobTitle,
     site: summary.site,
-    tailoredId: tailored ? opts.tailoredId : '',
+    tailoredId: tailored ? tailoredId : '',
     tailoredFileName: tailored ? tailored.name : '',
     folder: opts && opts.folder,
   });

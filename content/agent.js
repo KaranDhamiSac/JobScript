@@ -517,7 +517,7 @@
       if (f.kind !== 'file') return { error: `${ref} isn't a file upload.` };
       const session = F.getSession();
       if (documentType === 'cover_letter') {
-        const letter = await S.getLetter(location.href);
+        const letter = (session && session.letter) || (await S.getLetter(location.href));
         if (!letter || !letter.pdf || !letter.pdf.data) {
           return { text: 'No cover letter is saved for this job. Leave this upload for the user; they can write one with "Write cover letter" in the panel.' };
         }
@@ -531,15 +531,25 @@
       }
       if (documentType !== 'resume') return { error: 'documentType must be "resume" or "cover_letter".' };
       if (COVER_LETTER_RE.test(f.label)) return { error: 'That field asks for a cover letter. Use documentType "cover_letter".' };
-      // Only a resume made for this job is sent; your master resume only fills in your details.
+      // The resume made for this job (here or on its job board page); without one, your master
+      // resume, unless you chose to be asked first on the options page.
       let tailoredId = session && session.tailoredId;
       if (!tailoredId) {
-        const key = S.applicationKey(location.href);
-        const app = (await S.getApplications()).find((a) => S.applicationKey(a.url) === key);
-        tailoredId = app && app.tailoredId;
+        const docs = await S.jobDocuments({ url: location.href, company: session && session.company, title: session && session.jobTitle }).catch(() => null);
+        tailoredId = docs && docs.tailoredId;
       }
       const tailored = tailoredId ? await S.getTailored(tailoredId) : null;
       if (!tailored) {
+        const [fillSettings, master] = await Promise.all([S.getFillSettings(), S.getResume()]);
+        if (fillSettings.resumeFallback === 'master' && master) {
+          const ok = F.attachFile(f.el, master);
+          if (!ok) return { error: 'Couldn’t attach the resume.' };
+          register(f);
+          F.setStatus(f, 'filled', `${master.name} (master resume) · by the agent`);
+          F.renderPanel();
+          log(`Attached your master resume to ${quote(f.label, 80)}`);
+          return { text: `OK. Attached the applicant's master resume, ${quote(master.name, 80)}; no resume was made for this job. The site may refill fields from it; call read_snapshot.` };
+        }
         register(f);
         F.askForJobResume(f, await S.getResume());
         F.renderPanel();
