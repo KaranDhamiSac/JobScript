@@ -1,0 +1,49 @@
+<!doctype html>
+<!-- Opens the real tailor/tailor.html with a fake chrome API and scripted Claude answers, to check
+     the review screen (score before/after, locks, title suggestions) without the extension.
+     Serve the repo root and open http://127.0.0.1:8765/dev/tailor-harness.html.
+     window.__sent records the messages the page sent. -->
+<html><head><meta charset="utf-8"><title>Tailor harness</title></head>
+<body>
+<script src="stub.js"></script>
+<script>
+  window.__sent = [];
+  const posting = { url: 'https://www.linkedin.com/jobs/view/4012345678/', title: 'Software Engineer Intern', company: 'Northwind Logistics', description: 'Python, SQL, React.' };
+  const sessionStore = { 'tailor:test': { tabId: 7, posting, createdAt: Date.now() } };
+  chrome.storage.session = { get: async (k) => ({ [k]: sessionStore[k] }) };
+  chrome.storage.local.get = ((orig) => async (k) => (k === 'anthropicApiKey' ? { anthropicApiKey: 'sk-test' } : orig(k)))(chrome.storage.local.get);
+  chrome.permissions = { contains: async () => true, request: async () => true };
+  chrome.tabs = { getCurrent: async () => ({ index: 1 }), create: async () => ({}) };
+  const bullets = [
+    { sourceId: 'j0b0', original: 'Built internal tools.', text: 'Built internal Python tools.', note: 'Kept original: added “Python”, which isn’t in your resume' },
+    { sourceId: 'j0b1', original: 'Wrote SQL reports for 3 teams', text: 'Wrote SQL reports for 3 teams', note: 'Locked', locked: true },
+  ];
+  bullets[0].text = bullets[0].original;
+  const tailored = {
+    jobs: [{ index: 0, bullets, unused: [], title: 'Software Engineering Intern', titleSuggestion: 'Software Engineer Intern' },
+           { index: 1, bullets: [{ sourceId: 'j1b0', original: 'Help desk.', text: 'Resolved help desk tickets.', note: 'Reworded' }], unused: [], title: 'Student Assistant', titleSuggestion: '' }],
+    projects: [], skills: ['SQL', 'Python'], keywords: ['Python', 'SQL', 'React'], missingKeywords: ['React'], summary: 'Engineering intern who builds internal tools.', summaryNote: '',
+  };
+  chrome.runtime = {
+    sendMessage: async (msg) => {
+      window.__sent.push(msg);
+      if (msg.type === 'ai-tailor') return { ok: true, tailored, model: 'claude-sonnet-5-5', cost: 0.031, usedBreakdown: true };
+      if (msg.type === 'tailor-score') return new Promise((r) => setTimeout(() => r({ ok: true, before: 58, after: 71, afterReason: 'Python and SQL shown; React still missing.', cost: 0.006 }), 300));
+      return { ok: true };
+    },
+  };
+  // The stub's profile has workHistory without bullets; give it the bullets the review shows.
+  chrome.storage.local.get('profile').then(({ profile }) => {
+    profile.workHistory[0].bullets = ['Built internal tools.', 'Wrote SQL reports for 3 teams'];
+    profile.workHistory[1].bullets = ['Help desk.'];
+    profile.projects = [];
+    return chrome.storage.local.set({ profile });
+  }).then(() => fetch('../tailor/tailor.html')).then((r) => r.text()).then((html) => {
+    html = html.replace('<head>', '<head><base href="/tailor/">').replace(/<meta http-equiv="Content-Security-Policy"[^>]*>/, '');
+    history.replaceState(null, '', '?sid=test');
+    document.open();
+    document.write(html);
+    document.close();
+  });
+</script>
+</body></html>
