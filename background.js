@@ -89,7 +89,7 @@ async function fillTab(tabId, opts) {
   // Tailor & Fill's resume, or one made for this job earlier that the fill found and attached.
   const tailoredId = (opts && opts.tailoredId) || (done.find((f) => f.tailoredId) || {}).tailoredId || '';
   const tailored = tailoredId ? await JobScriptStorage.getTailored(tailoredId) : null;
-  await JobScriptStorage.upsertApplication({
+  const app = await JobScriptStorage.upsertApplication({
     url: withJob.url,
     company: withJob.company,
     title: withJob.jobTitle,
@@ -98,6 +98,8 @@ async function fillTab(tabId, opts) {
     tailoredFileName: tailored ? tailored.name : '',
     folder: opts && opts.folder,
   });
+  // A confirmation page in this tab soon after marks this application Applied.
+  await chrome.storage.session.set({ ['filled:' + tabId]: { appId: app.id, at: Date.now() } });
   // Keep the full posting with the entry, in case it's taken down later. Not awaited: reading
   // the posting can take a moment and the popup is waiting for this summary.
   savePostingFor(tabId, withJob.url).catch(() => {});
@@ -454,6 +456,27 @@ async function classifyQuestion(msg) {
   await JobScriptStorage.saveQuestionClass(wording, { type: res.type, key, by: 'claude' });
   return { ok: true, type: res.type, key, label: res.label, cost: res.cost };
 }
+
+// ---------------------------------------------------------------------------
+// Confirmation pages: when a tab where JobScript filled an application in the last few hours
+// shows "Thank you for applying" (or the site's confirmation address), that application is
+// marked Applied. Only that tab's own fill counts, so a page can't mark anything else.
+
+const CONFIRM_WINDOW_MS = 3 * 60 * 60 * 1000;
+
+async function applicationConfirmed(sender) {
+  const key = 'filled:' + sender.tab.id;
+  const rec = (await chrome.storage.session.get(key))[key];
+  if (!rec || Date.now() - rec.at > CONFIRM_WINDOW_MS) return { ok: false };
+  const app = (await JobScriptStorage.getApplications()).find((a) => a.id === rec.appId);
+  await chrome.storage.session.remove(key);
+  if (!app) return { ok: false };
+  const was = app.status;
+  if (JobScriptStorage.NOT_APPLIED.has(was)) await JobScriptStorage.setApplicationStatus(app.id, 'Applied');
+  return { ok: true, marked: JobScriptStorage.NOT_APPLIED.has(was), status: JobScriptStorage.NOT_APPLIED.has(was) ? 'Applied' : was, title: app.title, company: app.company };
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => chrome.storage.session.remove('filled:' + tabId).catch(() => {}));
 
 // ---------------------------------------------------------------------------
 // The Job tab (content/jobtab.js): the posting on the page you're viewing, its match score and
@@ -999,6 +1022,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!isOwnContentScript(sender)) return false;
     const handler = { 'job-detected': jobDetected, 'job-analyze': jobAnalyze, 'job-save': jobSave, 'job-open': jobOpen, 'job-apply': jobApply }[msg.type];
     handler(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: 'Something went wrong in JobScript.' }));
+    return true;
+  }
+  if (msg.type === 'application-confirmed') {
+    if (!isOwnContentScript(sender)) return false;
+    applicationConfirmed(sender).then(sendResponse, () => sendResponse({ ok: false }));
     return true;
   }
   if (msg.type === 'open-options') {

@@ -200,6 +200,23 @@ await test('without an API key, analyze says so and makes no call', async () => 
   assert.equal(apiCalls.length, before);
 });
 
+await test('a confirmation page marks the application filled in that tab as Applied, once', async () => {
+  const { app } = await S.saveJob({ url: 'https://job-boards.greenhouse.io/northwind/jobs/4012345007', company: 'Northwind Logistics', title: 'Data Analyst' });
+  await S.upsertApplication({ url: app.url, company: app.company, title: app.title, site: 'Greenhouse' });
+  // Another tab with no fill can't mark anything.
+  assert.equal((await send({ type: 'application-confirmed' }, fromTab(7))).ok, false);
+  session['filled:8'] = { appId: app.id, at: Date.now() };
+  const res = await send({ type: 'application-confirmed' }, fromTab(8));
+  assert.deepEqual([res.ok, res.marked, res.status], [true, true, 'Applied']);
+  const saved = (await S.getApplications()).find((a) => a.id === app.id);
+  assert.equal(saved.status, 'Applied');
+  assert.ok(saved.appliedAt);
+  assert.equal((await send({ type: 'application-confirmed' }, fromTab(8))).ok, false, 'only once per fill');
+  // A fill from more than three hours ago doesn't count.
+  session['filled:8'] = { appId: app.id, at: Date.now() - 4 * 3600 * 1000 };
+  assert.equal((await send({ type: 'application-confirmed' }, fromTab(8))).ok, false);
+});
+
 await test('every site: read-only Job tab scripts are registered only while the setting is on and access is granted', async () => {
   granted = false;
   await S.savePanelSettings({ anySite: true });

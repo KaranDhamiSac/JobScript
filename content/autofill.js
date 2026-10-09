@@ -3526,6 +3526,53 @@
     if (settings.autoShow && !session && !globalThis.JobScriptPanel.isOpen()) openPanel();
   }
 
+  // ---------------------------------------------------------------------------
+  // Confirmation pages. After you submit, many sites show "Thank you for applying" or move to a
+  // confirmation address (Greenhouse /confirmation, Lever /thanks). When this page looks like
+  // one and has no form left, background.js marks the application JobScript filled in this tab
+  // as Applied. It only ever reads the page.
+
+  const CONFIRM_TEXT = /\b(thank you for (applying|your application|submitting)|thanks for applying|your application (has been|was|is) (submitted|received|sent|complete)|application (submitted|received)\b|application complete\b|we('|’)?ve received your application|we have received your application|you('|’)?ve (successfully )?applied|you have (successfully )?applied|successfully (submitted|applied))/i;
+  const CONFIRM_URL = /\/(confirmation|thanks|thank-?you|application-?submitted|submitted|success)(\/|$)/i;
+  let confirmSent = false;
+  let confirmHref = '';
+
+  function looksConfirmed() {
+    if (collectFields(findRoot().root).length >= 3) return false; // still a form
+    if (CONFIRM_URL.test(location.pathname)) return true;
+    const main = document.querySelector('main, [role="main"], [role="dialog"]') || document.body;
+    return !!main && CONFIRM_TEXT.test(String(main.innerText || '').slice(0, 20000));
+  }
+
+  async function checkConfirmation() {
+    if (confirmSent || !document.body) return;
+    if (!looksConfirmed()) return;
+    confirmSent = true;
+    const res = await ask({ type: 'application-confirmed' });
+    if (!res || !res.ok) return;
+    const what = [res.title, res.company].filter(Boolean).join(' at ') || 'this application';
+    const text = res.marked
+      ? `Marked ${what} as Applied in your tracker. Change it there if that’s wrong.`
+      : `${what} is already marked ${res.status} in your tracker.`;
+    if (window.top === window) showPanelMessage(text);
+    else console.info('[JobScript] ' + text);
+  }
+
+  // On load, when the address changes (one-page apps) and when a filled form goes away.
+  function watchConfirmation() {
+    confirmHref = location.href;
+    setTimeout(checkConfirmation, 1500);
+    setTimeout(checkConfirmation, 4000);
+    setInterval(() => {
+      if (confirmSent) return;
+      const formGone = session && [...registry.values()].length && ![...registry.values()].some((f) => f.el.isConnected);
+      if (location.href !== confirmHref || formGone) {
+        confirmHref = location.href;
+        checkConfirmation();
+      }
+    }, 2000);
+  }
+
   // A session for agent mode on a page the fill found nothing to do on (an unfamiliar form):
   // the panel lists what the agent fills, with the same Accept / Dismiss and saving as a fill.
   async function ensureSession() {
@@ -3565,7 +3612,7 @@
     applyValue, attachFile, fillCoverLetter, readComboOptions, readListboxOptions, highlightTarget,
     classifyWording, classifyForLearning, storeGeneric, saveAnswers, openReview, dateChoices, saveable,
     suggest, setStatus, preview, renderPanel, askForJobResume, watchBank, focusField,
-    ensureSession, renderIdle,
+    ensureSession, renderIdle, looksConfirmed,
     getSession: () => session,
     registry,
     isRunning: () => running,
@@ -3581,4 +3628,5 @@
 
   autoStart();
   initLauncher();
+  watchConfirmation();
 })();
