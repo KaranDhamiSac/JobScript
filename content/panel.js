@@ -18,6 +18,21 @@
 //   review (optional, replaces the list): { title, rows, onSave, onCancel }
 //     rows: [{ id, label, value, checked, note, dateChoices: { choices: [{ rule, label }], selected } }]
 //     onSave([{ id, dateRule }]) gets the ticked rows.
+//
+// The Job tab (content/jobtab.js), shown when the page has a job posting:
+//   JobScriptPanel.renderJob({ blocks, applyFallback }) or renderJob(null) to remove it
+//   blocks: [{ kind, ... }], drawn in order:
+//     title    { title, subtitle, meta: [strings] }
+//     score    { value (0-100 or null), label, reason, busy }
+//     warnings { items: [{ text, level: 'warn' | 'info' }] }
+//     chips    { title, items: [strings], tone: 'good' | 'missing' }
+//     list     { title, items: [strings] }
+//     note     { text, tone: 'muted' | 'warn' }
+//     buttons  { items: [{ label, ariaLabel, primary, disabled, onClick }] }
+//     links    { title, items: [{ label, href }] }   (open in a new tab)
+//     copy     { title, text }                      (read-only text with a Copy button)
+//   applyFallback (optional): blocks for the Apply tab on pages without a form to fill
+//   JobScriptPanel.openTab('job' | 'apply') opens the panel on that tab.
 (function () {
   if (globalThis.JobScriptPanel) return;
 
@@ -112,13 +127,45 @@
     .btn.stop { border-color: var(--needs); color: var(--needs); font-weight: 600; }
     .agent label { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; color: var(--muted); cursor: pointer; }
     .row select { grid-column: 2; margin-top: 3px; font: inherit; font-size: 12px; max-width: 100%; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 4px; }
+    .tabs { display: flex; border-bottom: 1px solid var(--border); }
+    .tabs button { flex: 1; padding: 7px 0; background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); font-weight: 600; }
+    .tabs button[aria-selected="true"] { color: var(--fg); border-bottom-color: var(--accent); }
+    .job { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 0 10px; }
+    .blk { padding: 8px 12px; }
+    .blk + .blk { border-top: 1px solid var(--border); }
+    .blk h2 { margin: 0 0 4px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+    .job-title { margin: 0; font-size: 15px; font-weight: 700; overflow-wrap: anywhere; }
+    .job-sub { margin: 2px 0 0; font-weight: 600; }
+    .job-meta { margin: 2px 0 0; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .score { display: flex; gap: 10px; align-items: center; }
+    .score-num { min-width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; font-weight: 800; border: 4px solid var(--border); }
+    .score-num.hi { border-color: var(--filled); } .score-num.mid { border-color: var(--needs); } .score-num.lo { border-color: #dc2626; }
+    .score-text { flex: 1; min-width: 0; }
+    .score-text strong { display: block; }
+    .score-text span { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+    .chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .chip { padding: 1px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--filled); color: var(--filled); }
+    .chips.missing .chip { border-color: var(--needs); color: var(--needs); }
+    .warns { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+    .warns li { padding: 4px 8px; border-radius: 6px; font-size: 12px; border-left: 3px solid var(--needs); background: var(--hover); overflow-wrap: anywhere; }
+    .warns li.info { border-left-color: var(--accent); }
+    .blk ul.plain { margin: 0; padding-left: 16px; font-size: 12px; }
+    .blk .muted { color: var(--muted); font-size: 12px; margin: 0; overflow-wrap: anywhere; }
+    .blk .warntext { color: var(--needs); font-size: 12px; margin: 0; font-weight: 600; }
+    .btns { display: flex; flex-wrap: wrap; gap: 6px; }
+    .btns .btn { padding: 5px 10px; }
+    .links a { display: block; color: var(--accent); font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; }
+    .copybox { width: 100%; min-height: 110px; font: inherit; font-size: 12px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); resize: vertical; }
   `;
 
   let host = null;
   let shadow = null;
-  let state = null;
+  let state = null; // the Apply tab (the fill), from content/autofill.js
+  let jobView = null; // the Job tab, from content/jobtab.js
+  let activeTab = 'apply';
   let mode = null; // 'panel' | 'launcher' | null (nothing on the page)
-  let onLaunch = null; // set by showLauncher(): what the floating button does
+  // What the floating button does, by tab: set by showLauncher(onOpen, 'job' | 'apply').
+  const launchers = {};
   let dismissed = false; // you closed the panel; updates wait until you open it again
   const ui = { collapsed: false, hideFilled: false, closedCats: new Set() };
 
@@ -200,10 +247,14 @@
     setInterval(check, 1000);
   }
 
+  function hasLauncher() {
+    return !!(launchers.job || launchers.apply);
+  }
+
   // Closing the panel leaves the floating button, if there is one.
   function close() {
     dismissed = true;
-    if (onLaunch) drawLauncher();
+    if (hasLauncher()) drawLauncher();
     else remove();
   }
 
@@ -215,7 +266,11 @@
     const b = el('button', { class: 'launcher', type: 'button', text: 'JobScript', 'aria-label': 'Open JobScript panel', title: 'Open JobScript panel' });
     b.addEventListener('click', trusted(() => {
       dismissed = false;
-      onLaunch();
+      // On a job page the panel opens on the Job tab.
+      activeTab = launchers.job && jobView ? 'job' : 'apply';
+      if (launchers.job) launchers.job();
+      if (launchers.apply) launchers.apply();
+      if (!launchers.apply) draw();
     }));
     shadow.replaceChildren(b);
     ensureStyles();
@@ -268,29 +323,62 @@
   }
 
   function draw() {
-    if (!state) return;
+    if (!state && !jobView) return;
+    if (!jobView) activeTab = 'apply';
+    if (!state && !jobView.applyFallback) activeTab = 'job';
     mode = 'panel';
     ensureHost();
+    const panel = el('div', { class: 'panel' + (ui.collapsed ? ' collapsed' : ''), role: 'complementary', 'aria-label': 'JobScript' });
+    panel.appendChild(drawHeader());
+    if (jobView) panel.appendChild(drawTabs());
+    if (activeTab === 'job' || !state) {
+      const body = el('div', { class: 'body' });
+      const blocks = activeTab === 'job' ? jobView.blocks : jobView.applyFallback;
+      body.appendChild(drawBlocks(blocks || [], activeTab === 'job' ? 'Job' : 'Apply'));
+      panel.appendChild(body);
+      const old = shadow.querySelector('.job');
+      const scrollTop = old && old.dataset.tab === activeTab ? old.scrollTop : 0;
+      shadow.replaceChildren(panel);
+      const fresh = shadow.querySelector('.job');
+      if (fresh) fresh.scrollTop = scrollTop;
+      ensureStyles();
+      return;
+    }
+    drawApply(panel);
+  }
+
+  function drawHeader() {
+    return el('header', null, [
+      el('h1', { text: 'JobScript' }),
+      el('button', {
+        class: 'icon',
+        text: ui.collapsed ? '▸' : '▾',
+        title: ui.collapsed ? 'Expand' : 'Collapse',
+        'aria-label': ui.collapsed ? 'Expand JobScript panel' : 'Collapse JobScript panel',
+        'aria-expanded': String(!ui.collapsed),
+        onclick: trusted(() => { ui.collapsed = !ui.collapsed; draw(); }),
+      }),
+      el('button', { class: 'icon', text: '×', title: 'Close', 'aria-label': 'Close JobScript panel', onclick: trusted(close) }),
+    ]);
+  }
+
+  function drawTabs() {
+    const bar = el('div', { class: 'tabs', role: 'tablist', 'aria-label': 'JobScript' });
+    for (const [id, label] of [['job', 'Job'], ['apply', 'Apply']]) {
+      bar.appendChild(el('button', {
+        type: 'button', role: 'tab', text: label, 'aria-selected': String(activeTab === id),
+        onclick: trusted(() => { activeTab = id; draw(); }),
+      }));
+    }
+    return bar;
+  }
+
+  // The Apply tab: the fill's field list (content/autofill.js).
+  function drawApply(panel) {
     const FM = globalThis.FieldMap;
     const items = state.items;
     const counts = { filled: 0, suggested: 0, needs: 0 };
     for (const it of items) counts[it.status] = (counts[it.status] || 0) + 1;
-
-    const panel = el('div', { class: 'panel' + (ui.collapsed ? ' collapsed' : ''), role: 'complementary', 'aria-label': 'JobScript' });
-    panel.appendChild(
-      el('header', null, [
-        el('h1', { text: 'JobScript' }),
-        el('button', {
-          class: 'icon',
-          text: ui.collapsed ? '▸' : '▾',
-          title: ui.collapsed ? 'Expand' : 'Collapse',
-          'aria-label': ui.collapsed ? 'Expand JobScript panel' : 'Collapse JobScript panel',
-          'aria-expanded': String(!ui.collapsed),
-          onclick: trusted(() => { ui.collapsed = !ui.collapsed; draw(); }),
-        }),
-        el('button', { class: 'icon', text: '×', title: 'Close', 'aria-label': 'Close JobScript panel', onclick: trusted(close) }),
-      ])
-    );
 
     const summary = el('div', { class: 'summary' });
     for (const s of ['filled', 'suggested', 'needs']) {
@@ -380,6 +468,87 @@
     shadow.replaceChildren(panel);
     list.scrollTop = scrollTop;
     ensureStyles();
+  }
+
+  // The Job tab, and the Apply tab on pages with nothing to fill: generic blocks (see the top).
+  function drawBlocks(blocks, tab) {
+    const wrap = el('div', { class: 'job', role: 'tabpanel', 'aria-label': tab });
+    wrap.dataset.tab = activeTab;
+    for (const b of blocks) {
+      const node = drawBlock(b);
+      if (node) wrap.appendChild(node);
+    }
+    return wrap;
+  }
+
+  function actionButton(a) {
+    const b = el('button', { type: 'button', class: 'btn' + (a.primary ? ' primary' : ''), text: a.label, 'aria-label': a.ariaLabel || a.label });
+    if (a.disabled) b.disabled = true;
+    b.addEventListener('click', trusted(async () => {
+      b.disabled = true;
+      try {
+        await a.onClick();
+      } finally {
+        if (b.isConnected) b.disabled = !!a.disabled;
+      }
+    }));
+    return b;
+  }
+
+  function drawBlock(b) {
+    const sec = (children, label) => el('section', { class: 'blk', 'aria-label': label || b.title || b.kind }, children);
+    const heading = b.title && b.kind !== 'title' ? el('h2', { text: b.title }) : null;
+    switch (b.kind) {
+      case 'title':
+        return sec([
+          el('p', { class: 'job-title', text: b.title || 'Job' }),
+          b.subtitle ? el('p', { class: 'job-sub', text: b.subtitle }) : null,
+          ...(b.meta || []).filter(Boolean).map((m) => el('p', { class: 'job-meta', text: m })),
+        ], 'Job');
+      case 'score': {
+        const v = Number.isFinite(b.value) ? Math.round(b.value) : null;
+        const tone = v === null ? '' : v >= 75 ? ' hi' : v >= 50 ? ' mid' : ' lo';
+        return sec([el('div', { class: 'score' }, [
+          el('div', { class: 'score-num' + tone, role: 'img', 'aria-label': v === null ? 'No match score yet' : `Match score ${v} out of 100`, text: v === null ? (b.busy ? '…' : '–') : String(v) }),
+          el('div', { class: 'score-text', role: 'status', 'aria-live': 'polite' }, [el('strong', { text: b.label || 'Match score' }), b.reason ? el('span', { text: b.reason }) : null]),
+        ])], 'Match score');
+      }
+      case 'warnings':
+        if (!b.items || !b.items.length) return null;
+        return sec([heading, el('ul', { class: 'warns' }, b.items.map((w) => el('li', { class: w.level === 'info' ? 'info' : 'warn', text: w.text })))], b.title || 'Warnings');
+      case 'chips':
+        if (!b.items || !b.items.length) return null;
+        return sec([heading, el('div', { class: 'chips' + (b.tone === 'missing' ? ' missing' : '') }, b.items.map((t) => el('span', { class: 'chip', text: t })))]);
+      case 'list':
+        if (!b.items || !b.items.length) return null;
+        return sec([heading, el('ul', { class: 'plain' }, b.items.map((t) => el('li', { text: t })))]);
+      case 'note':
+        return sec([heading, el('p', { class: b.tone === 'warn' ? 'warntext' : 'muted', role: 'status', text: b.text })]);
+      case 'buttons':
+        return sec([heading, el('div', { class: 'btns' }, (b.items || []).map(actionButton))], b.title || 'Actions');
+      case 'links':
+        return sec([heading, el('div', { class: 'links' }, (b.items || []).map((l) =>
+          el('a', { href: l.href, target: '_blank', rel: 'noopener noreferrer', text: l.label, onclick: (e) => { if (!e.isTrusted) e.preventDefault(); } })
+        ))]);
+      case 'copy': {
+        const box = el('textarea', { class: 'copybox', readonly: 'readonly', 'aria-label': b.title || 'Text to copy' });
+        box.value = b.text || '';
+        const copy = el('button', { type: 'button', class: 'btn', text: 'Copy', 'aria-label': 'Copy: ' + (b.title || 'text') });
+        copy.addEventListener('click', trusted(async () => {
+          try {
+            await navigator.clipboard.writeText(box.value);
+            copy.textContent = 'Copied ✓';
+          } catch (e) {
+            box.select();
+            copy.textContent = 'Press Ctrl+C / ⌘C';
+          }
+          setTimeout(() => { if (copy.isConnected) copy.textContent = 'Copy'; }, 1500);
+        }));
+        return sec([heading, box, el('div', { class: 'btns' }, [copy])]);
+      }
+      default:
+        return null;
+    }
   }
 
   // Without constructable stylesheets the <style> element is replaced along with the content.
@@ -489,30 +658,60 @@
     return wrap;
   }
 
+  function redraw() {
+    if (dismissed && hasLauncher()) {
+      if (mode !== 'launcher') drawLauncher();
+      return;
+    }
+    // Before you open it, the Job tab only updates its content; it doesn't pop the panel open.
+    if (mode === 'panel') draw();
+  }
+
   globalThis.JobScriptPanel = {
-    // Updates the panel. After you close it, the update waits behind the floating button.
+    // Updates the Apply tab. After you close the panel, the update waits behind the button.
     render(next) {
       state = next;
-      if (dismissed && onLaunch) {
+      if (dismissed && hasLauncher()) {
         if (mode !== 'launcher') drawLauncher();
         return;
       }
       draw();
+    },
+    // Updates the Job tab (null removes it), without opening the panel.
+    renderJob(view) {
+      jobView = view;
+      if (!view && !state) {
+        if (mode === 'panel') close();
+        return;
+      }
+      redraw();
     },
     // Opens the panel even if you closed it (you asked for a fill, say).
     open() {
       dismissed = false;
       draw();
     },
-    // Puts the floating button on the page; onOpen runs when you click it.
-    showLauncher(onOpen) {
-      onLaunch = onOpen;
+    // Opens the panel on one tab.
+    openTab(tab) {
+      dismissed = false;
+      activeTab = tab === 'job' ? 'job' : 'apply';
+      draw();
+    },
+    activeTab() {
+      return activeTab;
+    },
+    // Puts the floating button on the page; onOpen runs when you click it. which: 'job' for the
+    // job posting (the button then opens the Job tab), 'apply' (default) for the form.
+    showLauncher(onOpen, which) {
+      launchers[which === 'job' ? 'job' : 'apply'] = onOpen;
       if (mode !== 'panel') drawLauncher();
     },
-    // Takes the floating button away (you turned it off); an open panel stays open.
-    hideLauncher() {
-      onLaunch = null;
-      if (mode === 'launcher') remove();
+    // Takes the floating button away (you turned it off, or the job left the page); an open
+    // panel stays open. Without `which`, both.
+    hideLauncher(which) {
+      if (which) delete launchers[which];
+      else for (const k of Object.keys(launchers)) delete launchers[k];
+      if (mode === 'launcher' && !hasLauncher()) remove();
     },
     isOpen() {
       return mode === 'panel' && !!(host && host.isConnected);
