@@ -29,8 +29,19 @@ const cases = [
   ['https://app.joinhandshake.com/job-search/12345678', '12345678'],
   ['https://www.linkedin.com/jobs/view/data-analyst-at-northwind-4012345678', '4012345678'],
   ['https://www.linkedin.com/jobs/search-results/?currentJobId=4012345678', '4012345678'],
+  ['https://www.indeed.com/viewjob?jk=a1b2c3d4e5f60718&from=serp', 'a1b2c3d4e5f60718'],
+  ['https://www.indeed.com/jobs?q=data+analyst&l=Sacramento&vjk=a1b2c3d4e5f60718', 'a1b2c3d4e5f60718'],
+  ['https://www.glassdoor.com/job-listing/data-analyst-northwind-JV_IC1147401_KO0,12_KE13,22.htm?jl=1009456789012', '1009456789012'],
   ['not a url', ''],
 ];
 
 for (const [url, want] of cases) assert.equal(jobIdFromUrl(url), want, url);
 console.log(`ok - ${cases.length} job ID cases`);
+
+// Jobs that differ only by a query-string ID get different application keys; others are unchanged.
+const { applicationKey } = globalThis.JobScriptStorage;
+assert.notEqual(applicationKey('https://www.indeed.com/viewjob?jk=aaa111'), applicationKey('https://www.indeed.com/viewjob?jk=bbb222'));
+assert.equal(applicationKey('https://www.indeed.com/viewjob?jk=aaa111&from=serp'), applicationKey('https://www.indeed.com/viewjob?from=x&jk=aaa111'));
+assert.notEqual(applicationKey('https://careers.example.com/open-roles?gh_jid=1234'), applicationKey('https://careers.example.com/open-roles?gh_jid=5678'));
+assert.equal(applicationKey('https://jobs.lever.co/northwind/0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0/apply?src=x'), 'https://jobs.lever.co/northwind/0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0');
+console.log('ok - application keys keep query-string job IDs');
