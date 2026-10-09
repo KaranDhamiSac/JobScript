@@ -115,4 +115,27 @@ await test('postings saved under the old key (query string dropped) are still fo
   assert.equal((await S.getPosting('https://careers.example.com/open-roles?gh_jid=111')).description, 'old copy');
 });
 
+await test('duplicates: same job, then job ID at the same company, then company and title', async () => {
+  await S.saveJob({ url: 'https://job-boards.greenhouse.io/northwind/jobs/4012345007', company: 'Northwind, Inc.', title: 'Data Analyst II (Remote)', jobId: '4012345007' });
+  assert.equal((await S.findDuplicate({ url: 'https://job-boards.greenhouse.io/northwind/jobs/4012345007?src=li' })).by, 'this job');
+  assert.equal((await S.findDuplicate({ url: 'https://northwind.example/careers?gh_jid=4012345007', jobId: '4012345007', company: 'Northwind' })).by, 'job ID');
+  assert.equal((await S.findDuplicate({ url: 'https://www.linkedin.com/jobs/view/999/', jobId: '999', company: 'NORTHWIND', title: 'data analyst ii - remote' })).by, 'company and title');
+  assert.equal(await S.findDuplicate({ url: 'https://www.linkedin.com/jobs/view/998/', jobId: '998', company: 'Northwind', title: 'Data Engineer' }), null);
+});
+
+await test('match scores are cached per job', async () => {
+  await S.saveJobScore('https://www.indeed.com/viewjob?jk=aaa111&from=serp', { resumeHash: 'h1', score: 71 });
+  assert.equal((await S.getJobScore('https://www.indeed.com/viewjob?jk=aaa111')).score, 71);
+  assert.equal(await S.getJobScore('https://www.indeed.com/viewjob?jk=bbb222'), null);
+});
+
+await test('a posting keeps location, pay, job ID and apply link, and a re-scrape without them keeps the old ones', async () => {
+  const url = 'https://www.indeed.com/viewjob?jk=ccc333';
+  await S.savePosting({ url, title: 'Engineer', company: 'Fabrikam', description: 'x'.repeat(500), location: 'Fresno, CA', pay: '$70,000 a year', jobId: 'ccc333', applyUrl: 'https://jobs.lever.co/fabrikam/abc' });
+  await S.savePosting({ url, title: 'Engineer', company: 'Fabrikam', description: 'x'.repeat(520) });
+  const p = await S.getPosting(url);
+  assert.equal(p.location, 'Fresno, CA');
+  assert.equal(p.applyUrl, 'https://jobs.lever.co/fabrikam/abc');
+});
+
 console.log(`\n${passed} tests passed`);
