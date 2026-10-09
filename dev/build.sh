@@ -10,6 +10,8 @@ ROOT="$(dirname "$DEV")"
   cat "$ROOT/lib/ai.js" "$ROOT/lib/agent.js" "$DEV/agent-harness.js"
   # Let the proxied site's rules apply on 127.0.0.1 (the proxy sets window.__jsTargetSite).
   echo '(FieldMap.sites.find(function(s){return s.name===window.__jsTargetSite})||{hosts:[]}).hosts.push(/^127\.0\.0\.1$/);'
+  # The same for job detection: read the proxied page with the target site's layout.
+  echo '(function(){var s=JobScriptDetect._test.SITES.find(function(x){return x.name===window.__jsTargetSite});if(s){var h=s.hosts;s.hosts={test:function(x){return x==="127.0.0.1"||h.test(x);}};}})();'
   # Open shadow roots, so tests can read the panel (document.querySelector('jobscript-panel').shadowRoot).
   sed "s/mode: 'closed'/mode: 'open'/" "$ROOT/content/panel.js" "$ROOT/content/bank.js"
   cat "$ROOT/content/autofill.js" "$ROOT/content/agent.js"
