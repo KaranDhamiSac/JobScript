@@ -52,7 +52,7 @@ JobScript never submits an application for you.
 
 ### 2. To Anthropic, only if you click Import with Claude
 
-With an API key saved, the options page shows **Import with Claude**. Clicking it sends your resume's text to Anthropic's API, so Claude can turn it into a draft profile for you to review. The text includes everything on your resume, **including your name, email, phone number and address**, because those are the details being imported. Nothing is sent when you upload a resume; only when you click that button. **Import on this device** reads the resume without sending anything.
+With an API key saved, the options page shows **Import with Claude**. Clicking it reads your name, email, phone number, address and links on your device, takes them out of your resume's text, and sends the rest to Anthropic's API so Claude can turn it into a draft profile for you to review. Your contact details are filled back in on your device. Nothing is sent when you upload a resume; only when you click that button. **Import on this device** reads the resume without sending anything.
 
 ### 3. To Anthropic, only if you click Tailor & Fill
 
@@ -74,13 +74,15 @@ Text from job postings and company websites is sent to Claude inside labeled tag
 AI answers are **off by default**. If you turn them on and add your own Anthropic API key, then each time you click Fill, JobScript sends these to Anthropic's API (`api.anthropic.com`) to ask Claude to suggest answers:
 
 - the questions JobScript couldn't answer, with their answer options
-- your profile: name, city, links, work authorization, skills, work history, education and saved answers
-- your full resume text, with email addresses, phone numbers and street addresses removed
+- your profile: country, work authorization, skills, work history, education and saved answers
+- your full resume text, with your name, email addresses, phone numbers, street addresses and links removed
 - the job title and description from the page
 
 When you answer a question whose wording JobScript's rules don't recognize, and AI answers are on, it sends only that question's wording and its answer options (not your answer) to Anthropic so Claude Haiku can say whether it's generic, changing or job-specific. Each wording is sent at most once.
 
-When answering questions, JobScript never sends your email, phone number, street address, ZIP code or self-identification (EEO) answers. It also never asks the AI questions about consent, signatures, SSN, date of birth or similar sensitive topics.
+When answering questions, JobScript never sends your name, email, phone number, street address, city, ZIP code, profile links or self-identification (EEO) answers.
+
+**Agent mode** (off unless you turn it on, and started by your click) sends Claude a text snapshot of the form, the job posting, and the same profile and saved answers as AI answers. Your contact details are sent only as placeholders such as `{{email}}`: when the agent fills a field with one, JobScript types the real value on your device, and your values on the page are shown to Claude as the same placeholders. Screenshots (off by default) are images of the page and can show what's typed in it. It also never asks the AI questions about consent, signatures, SSN, date of birth or similar sensitive topics.
 
 Requests to Anthropic (all of these features) are authenticated with your API key and billed to your Anthropic account. Anthropic's commercial terms and privacy policy govern how Anthropic handles it. JobScript uses no intermediary server; requests go straight from your browser to Anthropic.
 
