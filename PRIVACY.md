@@ -1,6 +1,6 @@
 # JobScript Privacy Policy
 
-_Last updated: 2026-09-29_
+_Last updated: 2026-10-09_
 
 JobScript is a browser extension that fills job application forms with information you save in it. This policy explains what happens to that information.
 
@@ -16,7 +16,9 @@ JobScript stores the details you enter on its options page:
 - up to three references: their name, company, relationship to you, email, phone, years known and whether employers may contact them. JobScript only puts these into application forms you fill; it never sends them to Claude
 - your resume PDF, and its plain text (extracted on your device when you upload it)
 - if you use the Claude features: your Anthropic API key and your chosen model
-- your application tracker (company, job title, job ID, page address, the dates you filled and applied, and the status of each application) and your daily application goal
+- your application tracker (company, job title, job ID, page address, location and pay if the posting showed them, the dates you saved, filled and applied, the status of each application, and its match score) and your daily application goal
+- the postings of job pages you open with JobScript's button showing (the most recent 300), so the Job tab and later tailoring don't need to read the page again, and each job's match score with a fingerprint of the resume version it was made from (the most recent 300)
+- the bullets you lock on the tailoring screen, and your choice of what to attach when there's no resume made for a job
 - resumes you upload for a specific job, or tailored resumes you approve, saved with their application (the most recent 60)
 - the full text of each job posting you fill an application for, saved with its tracker entry (the most recent 300), and Claude's breakdown of it once you tailor or write a cover letter
 - company profiles you research: the company's name and website, and its mission, values, products, news and culture as found on the web, each with its source address (the most recent 200), plus anything you add
@@ -36,7 +38,13 @@ If you choose to, the **Job description** page saves the job description and the
 
 ## What JobScript sends, and to whom
 
-**By default, nothing.** JobScript has no servers and no analytics or tracking. Unless you click **Import with Claude**, **Tailor & Fill**, a company research button or **Write cover letter**, or turn on AI answers, it makes no network requests. (Reading a job posting happens on the page you're on; on an /apply page JobScript also loads the posting page on the same site.)
+**By default, nothing.** JobScript has no servers and no analytics or tracking. Unless you open the Job tab with an API key saved (which scores the job), click **Import with Claude**, **Tailor & Fill**, a company research button or **Write cover letter**, or turn on AI answers, it makes no network requests. (Reading a job posting happens on the page you're on; on an /apply page JobScript also loads the posting page on the same site.)
+
+### Job pages JobScript reads
+
+JobScript reads job pages on LinkedIn, Indeed and Glassdoor, the application sites listed below, and, if you turn on **Find job postings on every site**, any other https page (that setting asks for access to all sites; turning it off gives the access back). Reading means looking at the page you have open for a job posting: it never clicks, scrolls, types or navigates on LinkedIn, Indeed or Glassdoor, and never fills forms there. Nothing it reads leaves your device unless you use a Claude feature below. **Find referrals** builds LinkedIn search links that you open yourself; JobScript doesn't visit or read them.
+
+After JobScript fills an application in a tab, it reads that tab's next pages for a confirmation message ("Thank you for applying") for up to three hours, to mark the application Applied in your tracker. Only the text on the page is checked, on your device.
 
 Your information leaves your device in the ways below.
 
@@ -58,11 +66,12 @@ With an API key saved, the options page shows **Import with Claude**. Clicking i
 
 **Tailor & Fill** sends Anthropic your master resume (jobs, projects, bullet points, skills and education, without your name or contact details), the job posting from the page, Claude's breakdown of it, and the company's profile if you've researched it, so Claude can pick, reorder and reword your existing bullets for that job and write a summary. The tailored PDF is then built on your device with a bundled PDF library, and nothing is used until you approve it.
 
-### Job and company research, and cover letters
+### Job and company research, cover letters and match scores
 
-These only run when you click their buttons.
+These only run when you click their buttons, or open the Job tab with an API key saved.
 
 - **Reading a job description** sends Anthropic the job posting (title, company and text). Nothing about you.
+- **The match score** (the Job tab, and before and after tailoring) sends Claude Haiku your master resume (jobs, projects, bullet points, skills and education, without your name or contact details) and the requirements from the job breakdown. It runs once per job and per version of your resume; opening the same job again uses the saved score. Eligibility warnings (years, degree, clearance, citizenship, location) are worked out on your device and send nothing.
 - **Company research, website mode** first asks your permission to read that one company's website, then JobScript fetches up to eight of its pages (home, About, Mission, Values, Careers, Culture) directly from the company's site, without cookies, and removes the permission again. The company's site sees an ordinary visit from your browser. The pages' text and the company's name go to Anthropic to summarize. Nothing about you.
 - **Company research, web search mode** sends Anthropic the company's name and website; Claude searches the web through Anthropic's web search tool, which costs $10 per 1,000 searches on your Anthropic account (at most five per run; the estimate is shown before you click). Nothing about you.
 - **Write cover letter** sends Anthropic your master resume (as for Tailor & Fill, without your name or contact details), the job breakdown and the company profile. Your name, contact line and sign-off are added on your device when the letter and PDF are built.
@@ -92,7 +101,7 @@ Claude's answers only appear as suggestions in JobScript's side panel. None are 
 
 - It does not sell, rent or share your data with anyone.
 - It does not use your data for advertising, profiling or any purpose other than filling forms you choose to fill.
-- It does not collect browsing history. It runs only on the job sites listed in its manifest (Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters, SuccessFactors, Taleo, Oracle Recruiting, UKG and Handshake), on another page when you explicitly click Fill there, and on sites you chose to teach with Learn mode and gave access to (one site at a time, asked for when you click "Learn this site's steps"). On those sites it only reads the form and shows its panel or its floating button; it fills nothing until you click.
+- It does not collect browsing history. It runs only on the job sites listed in its manifest (Greenhouse, Lever, Ashby, Workday, iCIMS, SmartRecruiters, SuccessFactors, Taleo, Oracle Recruiting, UKG and Handshake, plus LinkedIn, Indeed and Glassdoor, which it only reads), on another page when you explicitly click Fill there, on sites you chose to teach with Learn mode and gave access to (one site at a time, asked for when you click "Learn this site's steps"), and on every https page only if you turn on **Find job postings on every site**. On those sites it only reads the page and shows its panel or its floating button; it fills nothing until you click.
 - It never puts your profile data in the page's DOM attributes or JavaScript globals. The panel and its button live in a closed shadow root that page scripts can't open; the panel's summary line shows field labels from the form, not your answers.
 - Learn mode and saving answers never record uploads, checkboxes, demographic or reference questions, or sensitive questions (such as Social Security number or date of birth).
 
