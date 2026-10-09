@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "JobScript",
   "version": "0.1.0",
-  "description": "Autofill job applications on Workday, Greenhouse, Lever, iCIMS and more from your saved profile. Never submits for you.",
+  "description": "Job match scores, tailored resumes, cover letters and autofill on job pages. Reads LinkedIn and Indeed; never submits for you.",
   "permissions": [
     "storage",
     "scripting",
@@ -31,7 +31,11 @@
     "https://*.ultipro.com/*",
     "https://*.ultipro.ca/*",
     "https://*.saashr.com/*",
-    "https://*.joinhandshake.com/*"
+    "https://*.joinhandshake.com/*",
+    "https://www.linkedin.com/*",
+    "https://www.indeed.com/*",
+    "https://*.indeed.com/*",
+    "https://www.glassdoor.com/*"
   ],
   "optional_host_permissions": [
     "https://api.anthropic.com/*",
@@ -46,6 +50,8 @@
       "lib/research.js",
       "lib/letterCheck.js",
       "lib/canonical.js",
+      "lib/eligibility.js",
+      "lib/jobDetect.js",
       "background.js"
     ]
   },
@@ -95,15 +101,32 @@
         "lib/fieldMap.js",
         "lib/dateRules.js",
         "lib/canonical.js",
+        "lib/jobDetect.js",
         "content/panel.js",
         "content/bank.js",
         "content/autofill.js",
-        "content/agent.js"
+        "content/agent.js",
+        "content/jobtab.js"
       ],
       "css": [
         "content/autofill.css"
       ],
       "all_frames": true,
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://www.linkedin.com/*",
+        "https://www.indeed.com/*",
+        "https://*.indeed.com/*",
+        "https://www.glassdoor.com/*"
+      ],
+      "js": [
+        "lib/storage.js",
+        "lib/jobDetect.js",
+        "content/panel.js",
+        "content/jobtab.js"
+      ],
       "run_at": "document_idle"
     }
   ],

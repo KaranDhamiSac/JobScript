@@ -6,9 +6,11 @@
 
 // Chrome runs this file as a service worker and loads helpers with importScripts; Firefox lists
 // them before this file in manifest.json "background.scripts".
-if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/agent.js', 'lib/research.js', 'lib/letterCheck.js', 'lib/canonical.js');
+if (typeof importScripts === 'function') importScripts('lib/storage.js', 'lib/ai.js', 'lib/agent.js', 'lib/research.js', 'lib/letterCheck.js', 'lib/canonical.js', 'lib/eligibility.js', 'lib/jobDetect.js');
 
-const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'lib/dateRules.js', 'lib/canonical.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js', 'content/agent.js'];
+const CONTENT_FILES = ['lib/storage.js', 'lib/fieldMap.js', 'lib/dateRules.js', 'lib/canonical.js', 'lib/jobDetect.js', 'content/panel.js', 'content/bank.js', 'content/autofill.js', 'content/agent.js', 'content/jobtab.js'];
+// What job boards JobScript only reads (LinkedIn, Indeed, Glassdoor) get: the Job tab, no fill.
+const JOB_FILES = ['lib/storage.js', 'lib/jobDetect.js', 'content/panel.js', 'content/jobtab.js'];
 const CONTENT_CSS = ['content/autofill.css'];
 
 // Calls the fill in every frame that has the content script. Frames without it return null.
@@ -27,15 +29,30 @@ async function callInFrames(tabId, allFrames, fnName, arg) {
 async function callWithInjection(tabId, fnName, arg) {
   let frames = await callInFrames(tabId, true, fnName, arg);
   if (!frames.length) {
-    await chrome.scripting.insertCSS({ target: { tabId }, files: CONTENT_CSS });
-    await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_FILES });
+    // On a board JobScript only reads, only the Job tab's read-only scripts go in.
+    if (await onReadOnlyBoard(tabId)) {
+      await chrome.scripting.executeScript({ target: { tabId }, files: JOB_FILES });
+    } else {
+      await chrome.scripting.insertCSS({ target: { tabId }, files: CONTENT_CSS });
+      await chrome.scripting.executeScript({ target: { tabId }, files: CONTENT_FILES });
+    }
     frames = await callInFrames(tabId, false, fnName, arg);
   }
   return frames;
 }
 
+// LinkedIn, Indeed and Glassdoor: JobScript reads their job pages and never fills, clicks or
+// runs the agent there.
+async function onReadOnlyBoard(tabId) {
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  return !!(tab && tab.url && JobScriptDetect.isReadOnlyBoard(tab.url));
+}
+
+const READ_ONLY_ERROR = 'JobScript only reads job pages on LinkedIn, Indeed and Glassdoor. Apply on the employer’s site, where it can fill the form.';
+
 // opts.tailoredId: attach that tailored resume instead of the master.
 async function fillTab(tabId, opts) {
+  if (await onReadOnlyBoard(tabId)) return { ok: false, error: READ_ONLY_ERROR };
   let frames;
   try {
     // Frames on the job sites in the manifest already have the content script (including
@@ -406,6 +423,180 @@ async function classifyQuestion(msg) {
 }
 
 // ---------------------------------------------------------------------------
+// The Job tab (content/jobtab.js): the posting on the page you're viewing, its match score and
+// eligibility, and buttons to save, tailor, write a letter or apply. Pages only send what they
+// read; everything about you is looked up here.
+
+function httpUrl(v) {
+  try {
+    const u = new URL(String(v || ''));
+    return /^https?:$/.test(u.protocol) ? u.href : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+// What a page sent as its posting, trimmed to known fields.
+function cleanPosting(raw) {
+  const r = raw && typeof raw === 'object' ? raw : {};
+  const str = (v, n) => String(v || '').slice(0, n);
+  const url = httpUrl(r.url);
+  if (!url || !str(r.title, 300).trim()) return null;
+  return {
+    url,
+    title: str(r.title, 300),
+    company: str(r.company, 200),
+    location: str(r.location, 200),
+    pay: str(r.pay, 120),
+    jobId: str(r.jobId, 80),
+    description: str(r.description, 30000),
+    applyUrl: httpUrl(r.applyUrl),
+    applyHere: r.applyHere === true,
+    site: str(r.site, 100),
+    readOnly: JobScriptDetect.isReadOnlyBoard(url),
+  };
+}
+
+// A short fingerprint of your master resume, so a score made from an older version shows as stale.
+function resumeHash(profile) {
+  const text = JSON.stringify(JobScriptAI.masterForAi(profile));
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0;
+  return h.toString(36);
+}
+
+async function aiReady() {
+  const [key, granted] = await Promise.all([JobScriptStorage.getApiKey(), chrome.permissions.contains({ origins: [ANTHROPIC_ORIGIN] })]);
+  return !!key && granted;
+}
+
+function scoreView(record, hash) {
+  if (!record) return null;
+  return { score: record.score, reason: record.reason, items: record.items || [], stale: record.resumeHash !== hash, scoredAt: record.scoredAt };
+}
+
+// The posting was found on a page: save it, and say what JobScript already knows about it.
+async function jobDetected(msg) {
+  const posting = cleanPosting(msg.posting);
+  if (!posting) return { ok: false, error: 'No job posting.' };
+  await JobScriptStorage.savePosting(posting);
+  const [profile, parsed, score, dup, letter, ready] = await Promise.all([
+    JobScriptStorage.getProfile(),
+    JobScriptStorage.getJobParse(posting.url),
+    JobScriptStorage.getJobScore(posting.url),
+    JobScriptStorage.findDuplicate(posting),
+    JobScriptStorage.getLetter(posting.url),
+    aiReady(),
+  ]);
+  const view = { ok: true, aiReady: ready, duplicate: dupView(dup), hasLetter: !!(letter && letter.text), school: firstSchool(profile) };
+  if (parsed && parsed.eligibility) Object.assign(view, analysisView(profile, parsed, scoreView(score, resumeHash(profile))));
+  return view;
+}
+
+function firstSchool(profile) {
+  const e = (profile.education || []).find((x) => x.school);
+  return e ? e.school : '';
+}
+
+function dupView(dup) {
+  if (!dup) return null;
+  const a = dup.app;
+  return { by: dup.by, status: a.status, title: a.title, company: a.company, appliedAt: a.appliedAt || '', createdAt: a.createdAt, url: a.url, tailoredFileName: a.tailoredFileName || '' };
+}
+
+// Score, matching skills, missing keywords and eligibility warnings, from the breakdown.
+function analysisView(profile, parsed, score) {
+  const coverage = JobScriptAI.keywordCoverage(profile, parsed);
+  const metSkills = (score ? score.items : []).filter((i) => i.status === 'met' && i.text.length <= 40).map((i) => i.text);
+  const matching = [...new Set([...coverage.found, ...metSkills])].slice(0, 20);
+  return {
+    analyzed: true,
+    roleSummary: parsed.roleSummary,
+    seniority: parsed.seniority,
+    matching,
+    missing: coverage.missing.slice(0, 20),
+    warnings: JobScriptEligibility.check(parsed.eligibility, profile),
+    score,
+  };
+}
+
+// Parses the job (cached per job) and scores it against your master resume (cached per job and
+// resume version), with Haiku. refresh: score again even if a current score is cached.
+async function jobAnalyze(msg) {
+  const url = httpUrl(msg.url);
+  if (!url) return { ok: false, error: 'No job.' };
+  const posting = await JobScriptStorage.getPosting(url);
+  if (!posting) return { ok: false, error: 'Open the job page again so JobScript can read it.' };
+  // Breakdowns saved before eligibility was read are read again, once.
+  const cachedParse = await JobScriptStorage.getJobParse(url);
+  const job = await ensureJobParse(url, !!msg.refreshParse || !!(cachedParse && !cachedParse.eligibility), posting);
+  if (!job.ok) return job;
+  const profile = await JobScriptStorage.getProfile();
+  const hash = resumeHash(profile);
+  let cost = job.cost || 0;
+  let record = await JobScriptStorage.getJobScore(url);
+  if (!record || record.resumeHash !== hash || msg.refresh) {
+    const access = await aiAccess();
+    if (!access.ok) return access;
+    const res = await JobScriptAI.scoreMatch({ apiKey: access.apiKey, profile, parsed: job.parsed, posting });
+    if (!res.ok) return res;
+    cost += res.cost || 0;
+    record = await JobScriptStorage.saveJobScore(url, { resumeHash: hash, score: res.score, reason: res.reason, items: res.items, model: res.model || '' });
+  }
+  // Keep the score with the tracker entry, if the job is in your tracker.
+  if (Number.isFinite(record.score)) {
+    await JobScriptStorage.updateApplication(url, { score: record.score, scoreReason: String(record.reason || '').slice(0, 300) });
+  }
+  return Object.assign({ ok: true, cost, month: await monthText() }, analysisView(profile, job.parsed, scoreView(record, hash)));
+}
+
+async function jobSave(msg) {
+  const url = httpUrl(msg.url);
+  const posting = url && (await JobScriptStorage.getPosting(url));
+  if (!posting) return { ok: false, error: 'Open the job page again so JobScript can read it.' };
+  const score = await JobScriptStorage.getJobScore(url);
+  const { app, created } = await JobScriptStorage.saveJob({
+    url, company: posting.company, title: posting.title, site: posting.site, jobId: posting.jobId,
+    extra: { score: score ? score.score : undefined, scoreReason: score ? score.reason : '', location: posting.location, pay: posting.pay },
+  });
+  return { ok: true, created, status: app.status };
+}
+
+// Tailor, cover letter, company profile or job description pages for the job on this tab, from
+// the posting saved when the page was read (no need to read the tab again).
+async function jobOpen(msg, sender) {
+  const url = httpUrl(msg.url);
+  const posting = url && (await JobScriptStorage.getPosting(url));
+  if (!posting) return { ok: false, error: 'Open the job page again so JobScript can read it.' };
+  const tab = sender.tab;
+  if (msg.page === 'tailor' || msg.page === 'job') {
+    const sid = crypto.randomUUID();
+    await chrome.storage.session.set({ ['tailor:' + sid]: { tabId: tab.id, posting, createdAt: Date.now() } });
+    const target = msg.page === 'job' ? 'job/job.html' : 'tailor/tailor.html';
+    await chrome.tabs.create({ url: chrome.runtime.getURL(target + '?sid=' + sid), index: tab.index + 1, openerTabId: tab.id });
+    return { ok: true };
+  }
+  const target = msg.page === 'company'
+    ? `company/company.html?name=${encodeURIComponent(posting.company || '')}&domain=${encodeURIComponent(posting.companyDomain || '')}`
+    : msg.page === 'tracker' ? 'tracker/tracker.html'
+      : `letter/letter.html?url=${encodeURIComponent(url)}&tab=${tab.id}`;
+  await chrome.tabs.create({ url: chrome.runtime.getURL(target), index: tab.index + 1, openerTabId: tab.id });
+  return { ok: true };
+}
+
+// Apply: opens the application's address (read from the posting) in a new tab beside this one.
+// Never one on LinkedIn, Indeed or Glassdoor: there you press their Apply button yourself.
+async function jobApply(msg, sender) {
+  const url = httpUrl(msg.url);
+  const posting = url && (await JobScriptStorage.getPosting(url));
+  const target = posting && httpUrl(posting.applyUrl);
+  if (!target) return { ok: false, error: 'No application link on this page.' };
+  if (JobScriptDetect.isReadOnlyBoard(target)) return { ok: false, error: 'That link stays on the job board; use its Apply button yourself.' };
+  await chrome.tabs.create({ url: target, index: sender.tab.index + 1, openerTabId: sender.tab.id });
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Agent mode (lib/agent.js runs the loop; content/agent.js runs the tools and enforces the rules).
 // A run belongs to one frame of one tab, started from the panel there, and is locked to that
 // frame's site: if the frame or the tab leaves it, or the tab closes, the run stops.
@@ -438,6 +629,7 @@ async function monthText() {
 
 async function startAgent(msg, sender) {
   const tabId = sender.tab.id;
+  if (JobScriptDetect.isReadOnlyBoard(sender.tab.url || '')) return { ok: false, error: READ_ONLY_ERROR };
   if (typeof msg.runId !== 'string' || !msg.runId) return { ok: false, error: 'Bad request.' };
   if (agentRuns.has(tabId)) return { ok: false, error: 'The agent is already running in this tab.' };
   const aiSettings = await JobScriptStorage.getAiSettings();
@@ -727,6 +919,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!isTrustedSender(sender, 'company/')) return false;
     sendResponse({ ok: true, estimate: JobScriptAI.estimateWebSearchCost() });
     return false;
+  }
+  if (msg.type === 'job-detected' || msg.type === 'job-analyze' || msg.type === 'job-save' || msg.type === 'job-open' || msg.type === 'job-apply') {
+    if (!isOwnContentScript(sender)) return false;
+    const handler = { 'job-detected': jobDetected, 'job-analyze': jobAnalyze, 'job-save': jobSave, 'job-open': jobOpen, 'job-apply': jobApply }[msg.type];
+    handler(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: 'Something went wrong in JobScript.' }));
+    return true;
+  }
+  if (msg.type === 'open-options') {
+    if (!isOwnContentScript(sender)) return false;
+    chrome.runtime.openOptionsPage().then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false, error: 'Could not open the options page.' }));
+    return true;
   }
   if (msg.type === 'agent-start') {
     if (!isOwnContentScript(sender)) return false;
