@@ -23,6 +23,8 @@
 
   // Pressing these submits or ends the application, or throws work away. Never pressed.
   const BLOCKED_BUTTON = /\b(submit|apply|send|finish|complete|confirm|done|sign|e-?sign|place order|pay|purchase|withdraw|delete|remove|discard|cancel|log ?out|sign ?out)\b/i;
+  // A file widget's own buttons (Attach, Dropbox, Google Drive): files go in with upload_document.
+  const UPLOAD_BUTTON = /^(attach|upload|browse|choose file|select file|dropbox|google drive|onedrive|box|enter manually)\b/i;
   // Moving between steps: only with your approval (or "Allow Continue / Next" for this run).
   const NAV_BUTTON = /\b(continue|next|proceed|save (and|&) continue|review|back|previous|prev)\b/i;
   // Never typed, whatever the field.
@@ -91,10 +93,11 @@
     return clean(el.textContent) || clean(el.value) || clean(el.getAttribute('aria-label')) || clean(el.getAttribute('title'));
   }
 
-  // 'blocked', 'nav' or 'ok'.
+  // 'blocked', 'upload', 'nav' or 'ok'.
   function buttonKind(el) {
     const text = labelOf(el);
     if (BLOCKED_BUTTON.test(text)) return 'blocked';
+    if (UPLOAD_BUTTON.test(text)) return 'upload';
     if (NAV_BUTTON.test(text)) return 'nav';
     const type = (el.getAttribute('type') || (el.tagName === 'BUTTON' ? 'submit' : '')).toLowerCase();
     // A plain submit button inside a form sends it, whatever it says.
@@ -118,13 +121,17 @@
     for (const id of ids) {
       const n = id && root.getElementById && root.getElementById(id);
       const t = n && F.isVisible(n) ? clean(n.textContent) : '';
-      if (t && /error|required|invalid|must|please|enter|select/i.test(t + ' ' + n.className)) return t;
+      // describedby also points at hints and placeholders ("Select..."): only error-like text counts.
+      if (t && !/placeholder|hint|help/i.test(n.className) && /error|required|invalid|must|please/i.test(t + ' ' + n.className)) return t;
     }
     const invalid = (f.groupInputs || [el]).some((e) => e.getAttribute('aria-invalid') === 'true');
     let box = el.parentElement;
     for (let d = 0; box && d < 4; d++, box = box.parentElement) {
       if (box.querySelectorAll('input:not([type="hidden"]), select, textarea').length > (f.groupInputs ? f.groupInputs.length : 1) + 1) break;
-      const err = [...box.querySelectorAll('[class*="error" i], [role="alert"]')].find((n) => F.isVisible(n) && clean(n.textContent));
+      // Not the control itself (react-select marks its whole box "--error"), nor a placeholder.
+      const err = [...box.querySelectorAll('[class*="error" i], [role="alert"]')].find(
+        (n) => F.isVisible(n) && clean(n.textContent) && !n.contains(el) && !n.querySelector('input, select, textarea') && !/placeholder/i.test(n.className)
+      );
       if (err) return clean(err.textContent);
     }
     return invalid ? 'marked invalid' : '';
@@ -223,7 +230,9 @@
     lines.push(`Buttons (${buttons.length}):`);
     for (const b of buttons) {
       const kind = buttonKind(b);
-      const note = kind === 'blocked' ? ' · blocked: the user presses this' : kind === 'nav' ? ' · moves to another step: needs the user’s approval' : '';
+      const note = kind === 'blocked' ? ' · blocked: the user presses this'
+        : kind === 'upload' ? ' · part of a file upload: use upload_document instead'
+          : kind === 'nav' ? ' · moves to another step: needs the user’s approval' : '';
       lines.push(`[${buttonRef(b)}] ${quote(labelOf(b), 80)}${note}`);
     }
     return { text: lines.join('\n'), fieldCount: fields.length };
@@ -443,6 +452,9 @@
       const kind = buttonKind(el);
       if (kind === 'blocked') {
         return { refused: `JobScript never presses ${label}: it could submit, send or end the application, or throw away work. The user presses it.`, label: labelOf(el) };
+      }
+      if (kind === 'upload') {
+        return { refused: `${label} belongs to a file upload. Use upload_document to attach a resume or cover letter.`, label: labelOf(el) };
       }
       if (kind === 'nav' && !run.allowNav) {
         const answer = await askInPanel({
