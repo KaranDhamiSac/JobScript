@@ -251,6 +251,32 @@
     </section>
 
     <section>
+      <h2>Agent mode</h2>
+      <p class="muted">With AI answers on, the side panel offers <strong>Agent: finish this step</strong> after a fill when fields are still empty, or on a form JobScript doesn’t know. Claude reads the form, fills what your profile and saved answers cover, asks you about the rest, and logs every action. It never presses Submit or Apply, asks before Continue or Next, and never types passwords, card or ID numbers. <strong>Stop</strong> halts it at once.</p>
+      <div class="warning" role="note">
+        <strong>What an agent run sends to Anthropic</strong>
+        <ul>
+          <li>a text description of the form: field labels, options, current values and error messages, plus button labels</li>
+          <li>your profile, including name, email, phone and address (so it can fill unfamiliar forms), work history, education and saved answers</li>
+          <li>the job title and description</li>
+          <li>with screenshots on: an image of the visible part of the page, when the description isn’t enough</li>
+        </ul>
+        <p>It never sends your self-ID (EEO) answers or your resume file.</p>
+      </div>
+      <label class="check"><input id="agent-auto" type="checkbox"> Run the agent by itself after each fill when fields are still empty</label>
+      <label class="check"><input id="agent-screenshots" type="checkbox"> Let the agent take a screenshot when the page description isn’t enough (costs more)</label>
+      <div class="grid">
+        <label>Agent model
+          <select id="agent-model"></select>
+        </label>
+        <label>Monthly cap for all Claude features ($, 0 for none)
+          <input id="agent-cap" type="number" min="0" max="1000" step="0.5" inputmode="decimal">
+        </label>
+      </div>
+      <p id="agent-spend" class="muted" role="status"></p>
+    </section>
+
+    <section>
       <h2>Backup</h2>
       <p class="muted">Export includes your profile and resume. Import replaces what is saved now.</p>
       <div class="row">

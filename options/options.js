@@ -626,6 +626,42 @@ const aiStatus = document.getElementById('ai-status');
 for (const m of S.AI_MODELS) aiModel.append(new Option(m.label, m.id));
 
 // ---------------------------------------------------------------------------
+// Agent mode. Saved as soon as you change something.
+
+const agentAuto = document.getElementById('agent-auto');
+const agentScreenshots = document.getElementById('agent-screenshots');
+const agentModel = document.getElementById('agent-model');
+const agentCap = document.getElementById('agent-cap');
+const agentSpend = document.getElementById('agent-spend');
+
+for (const m of S.AGENT_MODELS) agentModel.append(new Option(m.label, m.id));
+
+async function renderAgent(message) {
+  const [settings, spend] = await Promise.all([S.getAgentSettings(), S.getAiSpend()]);
+  agentAuto.checked = settings.autoRun;
+  agentScreenshots.checked = settings.screenshots;
+  agentModel.value = settings.model;
+  if (document.activeElement !== agentCap) agentCap.value = String(settings.monthlyCap);
+  const cap = settings.monthlyCap > 0 ? ` of your $${settings.monthlyCap.toFixed(2)} cap` : '';
+  agentSpend.textContent = (message ? message + ' ' : '') + `Spent on Claude this month: about $${spend.cost.toFixed(2)}${cap} (${spend.calls} call${spend.calls === 1 ? '' : 's'}).`;
+}
+
+agentAuto.addEventListener('change', () => S.saveAgentSettings({ autoRun: agentAuto.checked }).then(() => renderAgent(agentAuto.checked ? 'The agent runs after each fill.' : 'The agent runs only when you press its button.')));
+agentScreenshots.addEventListener('change', () => S.saveAgentSettings({ screenshots: agentScreenshots.checked }).then(() => renderAgent('Saved.')));
+agentModel.addEventListener('change', () => S.saveAgentSettings({ model: agentModel.value }).then(() => renderAgent('Model saved.')));
+agentCap.addEventListener('change', () => {
+  const v = Number(agentCap.value);
+  if (!Number.isFinite(v) || v < 0) return renderAgent('Enter an amount of 0 or more.');
+  S.saveAgentSettings({ monthlyCap: v }).then(() => renderAgent('Cap saved.'));
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && (changes.aiSpend || changes.agentSettings)) renderAgent();
+});
+
+renderAgent();
+
+// ---------------------------------------------------------------------------
 // Saving answers
 
 // Company research mode and cover letter tone and length.
