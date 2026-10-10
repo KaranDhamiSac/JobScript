@@ -171,6 +171,8 @@
     .btns { display: flex; flex-wrap: wrap; gap: 6px; }
     .btns .btn { padding: 5px 10px; }
     .links a { display: block; color: var(--accent); font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; }
+    .drop { display: block; width: 100%; padding: 14px 10px; border: 2px dashed var(--border); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 12px; text-align: center; cursor: pointer; }
+    .drop.over, .drop:hover { border-color: var(--accent); color: var(--fg); }
     .copybox { width: 100%; min-height: 110px; font: inherit; font-size: 12px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); resize: vertical; }
   `;
 
@@ -621,6 +623,44 @@
           setTimeout(() => { if (copy.isConnected) copy.textContent = 'Copy'; }, 1500);
         }));
         return sec([heading, box, el('div', { class: 'btns' }, [copy])]);
+      }
+      case 'drop': {
+        // A file dropped here or chosen with the button goes to b.onFile(file).
+        const input = el('input', { type: 'file', accept: b.accept || '', hidden: 'hidden', 'aria-hidden': 'true', tabindex: '-1' });
+        const zone = el('button', { type: 'button', class: 'drop', text: b.prompt || 'Drop a file here, or click to choose one', 'aria-label': (b.prompt || 'Choose a file') });
+        const status = el('p', { class: 'muted', role: 'status', text: b.status || '' });
+        const take = async (file) => {
+          if (!file) return;
+          zone.disabled = true;
+          status.textContent = 'Reading ' + file.name + '…';
+          try {
+            await b.onFile(file);
+          } finally {
+            if (zone.isConnected) zone.disabled = false;
+          }
+        };
+        zone.addEventListener('click', trusted(() => input.click()));
+        input.addEventListener('change', () => {
+          const file = input.files && input.files[0];
+          input.value = '';
+          take(file);
+        });
+        for (const type of ['dragenter', 'dragover']) {
+          zone.addEventListener(type, (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            zone.classList.add('over');
+          });
+        }
+        zone.addEventListener('dragleave', () => zone.classList.remove('over'));
+        zone.addEventListener('drop', (e) => {
+          e.preventDefault(); // or the browser opens the file
+          e.stopPropagation(); // and the page's own drop handlers don't see it
+          zone.classList.remove('over');
+          if (!e.isTrusted) return;
+          take(e.dataTransfer && e.dataTransfer.files[0]);
+        });
+        return sec([heading, b.text ? el('p', { class: 'muted', text: b.text }) : null, zone, input, status]);
       }
       default:
         return null;
