@@ -1,0 +1,213 @@
+<!doctype html>
+<!--
+  Test-only copy of Handshake's Apply dialog, from a live test in October 2026 and
+  docs/platforms/handshake.md (Handshake needs a student account, so this is rebuilt, not saved):
+  - [role=dialog] titled "Apply to <Company>" around [data-hook="apply-modal-content"];
+  - the Resume slot comes with a document from your Handshake account already attached, and
+    there is no input[type=file] until you remove it. Then the slot shows a search of your
+    documents ([data-hook="apply-modal-document-search"]), the list of them, and "Upload Resume";
+  - an upload goes "Uploading..." then "Converting..." and then appears in the list, not attached:
+    you pick it. Files over 1 MB are refused;
+  - questions are plain inputs and selects named question_<id>, then gender, race and
+    veteran_status;
+  - "Submit Application" records window.__submitted, which must stay false.
+  Serve the repo root (python3 -m http.server 8765 --bind 127.0.0.1) and open
+  /dev/fixtures/handshake-apply.html: the fake profile (dev/stub.js) and a tailored resume for
+  this job are loaded, then run await __jobscriptFill({ tailoredId: 'hs-test' }).
+  window.__attached is the document picked for the Resume slot, window.__uploads the files sent.
+  Served at a Handshake URL (dev/test-extension.mjs), only the dialog runs.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Data Analyst Intern | Northwind Logistics | Handshake</title>
+<style>
+  body { font: 15px system-ui, sans-serif; margin: 0; }
+  [role="dialog"] { max-width: 620px; margin: 24px auto; padding: 16px 20px; border: 1px solid #999; border-radius: 8px; }
+  fieldset { border: 1px solid #ddd; margin: 12px 0; }
+  .field { margin: 10px 0; }
+  .field label { display: block; }
+  .rosetta-file__input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  [role="listbox"] { list-style: none; padding: 0; margin: 4px 0; border: 1px solid #ccc; }
+  [role="option"] { padding: 3px 8px; cursor: pointer; }
+  .chip { display: inline-block; background: #e8eefc; padding: 2px 8px; border-radius: 4px; }
+  .error { color: #b91c1c; }
+</style>
+</head>
+<body>
+<div data-hook="job-details-page">
+  <h1>Data Analyst Intern</h1>
+  <button type="button">Apply</button>
+</div>
+
+<div role="dialog" data-dialog="true" aria-modal="true" aria-labelledby="apply-title">
+  <h2 id="apply-title">Apply to Northwind Logistics</h2>
+  <button type="button" data-hook="apply-modal-close-button" aria-label="Cancel application">×</button>
+  <div data-hook="apply-modal-content">
+    <form id="apply-form">
+      <p>Applying requires a resume</p>
+      <fieldset id="resume-slot">
+        <legend><h4>Resume</h4></legend>
+        <div id="resume-body"></div>
+      </fieldset>
+
+      <h3 data-hook="work-auth-title">Work authorization (required)</h3>
+      <div data-hook="authorized-in-us-radio-group" role="radiogroup" aria-labelledby="auth-q">
+        <p id="auth-q">Are you legally authorized to work in the United States?</p>
+        <input type="radio" id="auth-yes" name="authorizedToWorkInUS" value="yes"><label for="auth-yes">Yes</label>
+        <input type="radio" id="auth-no" name="authorizedToWorkInUS" value="no"><label for="auth-no">No</label>
+      </div>
+
+      <h3>Questions from Northwind Logistics</h3>
+      <div class="field">
+        <label for="question_5101">LinkedIn Profile</label>
+        <input id="question_5101" name="question_5101" type="text">
+      </div>
+      <div class="field">
+        <label for="question_5102">Will you now or in the future require visa sponsorship?</label>
+        <select id="question_5102" name="question_5102">
+          <option value="">Choose option</option><option value="1">Yes</option><option value="0">No</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="question_5103">Are you willing to relocate to Fresno, CA?</label>
+        <select id="question_5103" name="question_5103">
+          <option value="">Choose option</option><option value="1">Yes</option><option value="0">No</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="question_5104">Why are you interested in this internship?</label>
+        <textarea id="question_5104" name="question_5104"></textarea>
+      </div>
+
+      <h3>Voluntary Self-Identification</h3>
+      <div class="field">
+        <label for="gender">Gender</label>
+        <select id="gender" name="gender">
+          <option value="">Choose option</option><option value="1">Male</option><option value="2">Female</option><option value="3">Decline To Self Identify</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="race">Race</label>
+        <select id="race" name="race">
+          <option value="">Choose option</option><option value="1">Asian</option><option value="2">White</option><option value="3">Hispanic or Latino</option><option value="8">Decline To Self Identify</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="veteran_status">Veteran Status</label>
+        <select id="veteran_status" name="veteran_status">
+          <option value="">Choose option</option>
+          <option value="1">I am not a protected veteran</option>
+          <option value="2">I identify as one or more of the classifications of a protected veteran</option>
+          <option value="3">I don't wish to answer</option>
+        </select>
+      </div>
+
+      <button type="submit" data-hook="submit-application">Submit Application</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  // The dialog's behavior, as on Handshake.
+  window.__submitted = false;
+  window.__uploads = [];
+  window.__attached = 'Master_Resume_2026.pdf';
+  const library = ['Master_Resume_2026.pdf', 'Old_Resume_Spring.pdf', 'Transcript_Unofficial.pdf'];
+  const body = document.getElementById('resume-body');
+
+  document.getElementById('apply-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    window.__submitted = true;
+  });
+
+  function attached(name) {
+    window.__attached = name;
+    body.innerHTML = '';
+    const chip = document.createElement('span');
+    chip.className = 'chip';
+    chip.textContent = name;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', 'Remove ' + name);
+    remove.addEventListener('click', () => picker(''));
+    body.append(chip, ' ', remove);
+  }
+
+  function picker(status) {
+    window.__attached = '';
+    body.innerHTML =
+      '<div data-hook="apply-modal-document-search"><input type="search" role="combobox" aria-label="Search your documents" placeholder="Search documents"></div>' +
+      '<ul role="listbox" aria-label="Your documents"></ul>' +
+      '<p>or</p><label for="file-resume">Upload Resume</label>' +
+      '<input type="file" id="file-resume" class="rosetta-file__input" name="file-Resume" accept=".pdf,.doc,.docx">' +
+      '<p class="status" aria-live="polite"></p>';
+    const search = body.querySelector('input[type=search]');
+    const list = body.querySelector('[role=listbox]');
+    const statusLine = body.querySelector('.status');
+    const draw = () => {
+      list.innerHTML = '';
+      for (const name of library.filter((n) => n.toLowerCase().includes(search.value.toLowerCase()))) {
+        const li = document.createElement('li');
+        li.setAttribute('role', 'option');
+        li.textContent = name;
+        li.addEventListener('click', () => attached(name));
+        list.appendChild(li);
+      }
+    };
+    search.addEventListener('input', draw);
+    draw();
+    statusLine.textContent = status;
+    body.querySelector('input[type=file]').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 1024 * 1024) {
+        statusLine.className = 'status error';
+        statusLine.textContent = 'File size should be less than 1 MB';
+        return;
+      }
+      window.__uploads.push(file.name);
+      statusLine.textContent = 'Uploading...';
+      setTimeout(() => { statusLine.textContent = 'Converting...'; }, 300);
+      setTimeout(() => {
+        library.unshift(file.name);
+        statusLine.textContent = '';
+        draw();
+      }, 1500);
+    });
+  }
+
+  attached(window.__attached);
+</script>
+
+<script>
+  // Test harness, on a local server only: the fake profile, a tailored resume made for this job,
+  // and the real content scripts with Handshake's site settings.
+  if (location.hostname === '127.0.0.1') {
+    const scripts = ['../stub.js', '../../lib/storage.js', '../../lib/fieldMap.js', '../../lib/dateRules.js', '../../lib/canonical.js',
+      '../../content/panel.js', '../../content/bank.js', '../../content/autofill.js'];
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = '../../content/autofill.css';
+    document.head.appendChild(css);
+    (async () => {
+      for (const src of scripts) {
+        await new Promise((resolve) => {
+          const s = document.createElement('script');
+          s.src = src;
+          s.onload = resolve;
+          document.head.appendChild(s);
+          if (src === '../stub.js') s.addEventListener('load', () => {
+            const pdf = btoa('%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj 2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF');
+            chrome.storage.local.set({ 'tailored:hs-test': { name: 'Testy_McTestface_Northwind_Resume.pdf', type: 'application/pdf', data: pdf, createdAt: new Date().toISOString(), company: 'Northwind Logistics', title: 'Data Analyst Intern' } });
+          });
+          if (src === '../../lib/fieldMap.js') s.addEventListener('load', () => FieldMap.sites.find((x) => x.name === 'Handshake').hosts.push(/^127\.0\.0\.1$/));
+        });
+      }
+      window.__harnessReady = true;
+    })();
+  }
+</script>
+</body>
+</html>
