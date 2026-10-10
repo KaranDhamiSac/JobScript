@@ -12,6 +12,8 @@ A Chrome/Firefox extension (Manifest V3) that works in a side panel on whatever 
   - **Eligibility warnings**, checked on your device (`lib/eligibility.js`): required years of experience (overlapping jobs counted once), degree (an in-progress one noted), security clearance, U.S. citizenship or no sponsorship, and onsite or hybrid location against yours.
   - **Duplicate warning** when the job is already in your tracker: the same job, then the same job ID at the same company, then the same company and title.
   - **Apply** (fills the form if it's on this page, or opens the application in a new tab), **Save to tracker** (status Saved), **Tailor resume**, **Write cover letter** and **Find referrals**.
+  - **Your resume for this job:** drop a PDF you made yourself (or click to choose one). It's kept with the job in your tracker and attached instead of your master resume. If the application is open on the page it fills right away. On Handshake, whose Apply dialog takes resumes from your Handshake documents, JobScript uploads it there with Handshake's own uploader and picks it (files up to Handshake's 1 MB limit).
+  - **Job description** in full, with a Copy button (on Handshake JobScript presses the description's "More" first, since the rest isn't in the page until then).
   - **Find referrals:** two LinkedIn people searches you open yourself (your school's alumni at the company, and people in the role at the company) and a short outreach note to copy. JobScript never opens, reads or automates LinkedIn for this.
 
 ## Features
