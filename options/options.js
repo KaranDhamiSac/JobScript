@@ -719,6 +719,75 @@ S.getFillSettings().then((s) => {
 });
 resumeFallback.addEventListener('change', () => S.saveFillSettings({ resumeFallback: resumeFallback.value }));
 
+// Documents: kept transcripts and other documents, with Remove, and adding one by hand.
+const keepDocuments = document.getElementById('keep-documents');
+const documentsList = document.getElementById('documents-list');
+const documentKind = document.getElementById('document-kind');
+const documentLabel = document.getElementById('document-label');
+const documentFile = document.getElementById('document-file');
+const documentsStatus = document.getElementById('documents-status');
+const KIND_NAMES = { transcript: 'Transcript', coverLetter: 'Cover letter', other: 'Other' };
+
+S.getFillSettings().then((s) => {
+  keepDocuments.checked = s.keepDocuments;
+});
+keepDocuments.addEventListener('change', () => S.saveFillSettings({ keepDocuments: keepDocuments.checked }));
+documentKind.addEventListener('change', () => {
+  documentLabel.hidden = documentKind.value !== 'other';
+});
+
+async function renderDocuments() {
+  const docs = await S.listDocuments();
+  document.getElementById('documents-empty').hidden = docs.length > 0;
+  documentsList.textContent = '';
+  for (const d of docs) {
+    const li = document.createElement('li');
+    const label = d.kind === 'other' ? d.label : KIND_NAMES[d.kind];
+    li.textContent = `${label.charAt(0).toUpperCase() + label.slice(1)}: ${d.name} (${Math.max(1, Math.round(d.size / 1024))} KB, ${new Date(d.savedAt).toLocaleDateString()}) `;
+    const remove = document.createElement('button');
+    remove.type = 'button';
+    remove.textContent = 'Remove';
+    remove.setAttribute('aria-label', `Remove ${d.name}`);
+    remove.addEventListener('click', async () => {
+      await S.removeDocument(d.id);
+      documentsStatus.textContent = `Removed ${d.name}.`;
+      renderDocuments();
+    });
+    li.appendChild(remove);
+    documentsList.appendChild(li);
+  }
+}
+
+documentFile.addEventListener('change', async () => {
+  const file = documentFile.files[0];
+  documentFile.value = '';
+  if (!file) return;
+  const kind = documentKind.value;
+  const label = kind === 'other' ? documentLabel.value.trim() : KIND_NAMES[kind];
+  if (kind === 'other' && !label) {
+    documentsStatus.textContent = 'Name the document first (what applications call it).';
+    return;
+  }
+  try {
+    const data = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    const doc = await S.saveDocument({ kind, label, name: file.name, data });
+    documentsStatus.textContent = `Kept ${doc.name}.${doc.replaced ? ` It replaces ${doc.replaced}.` : ''}`;
+  } catch (err) {
+    documentsStatus.textContent = 'Couldn’t keep that file: ' + err.message;
+  }
+  renderDocuments();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && Object.keys(changes).some((k) => k.startsWith('doc:'))) renderDocuments();
+});
+renderDocuments();
+
 const autoSave = document.getElementById('auto-save');
 S.getAnswerSettings().then((s) => {
   autoSave.checked = s.autoSave;

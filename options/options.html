@@ -199,6 +199,25 @@
       </label>
     </section>
 
+    <section id="documents-section">
+      <h2>Documents</h2>
+      <p class="muted">Other documents applications ask for, like a transcript. JobScript attaches the one you keep here whenever an application asks for that document (on Handshake, it uploads it there and picks it). Kept only in this browser; PDFs up to 5 MB, one per kind. Handshake takes files up to 1 MB.</p>
+      <label class="check"><input id="keep-documents" type="checkbox"> Keep documents I upload to applications</label>
+      <p class="muted small">When you upload a transcript, cover letter or other PDF to an application yourself, JobScript keeps a copy for next time and tells you, with a button to remove it. A resume you upload is kept as that job’s resume.</p>
+      <p id="documents-empty" class="muted">No documents kept yet.</p>
+      <ul id="documents-list" class="plain"></ul>
+      <label>Add a document
+        <select id="document-kind">
+          <option value="transcript">Transcript</option>
+          <option value="coverLetter">Cover letter (when none was written for the job)</option>
+          <option value="other">Other (name it below)</option>
+        </select>
+      </label>
+      <input id="document-label" type="text" placeholder="What applications call it, e.g. Writing Sample" hidden>
+      <input id="document-file" type="file" accept="application/pdf,.pdf">
+      <p id="documents-status" class="muted small" role="status"></p>
+    </section>
+
     <section id="canon-section">
       <h2>Saved answers</h2>
       <p class="muted">Answers JobScript reuses, one per question however a form words it. <strong>Generic</strong> answers fill automatically; <strong>changing</strong> ones (start date, salary) are suggested from their rule; <strong>job-specific</strong> ones (“Why do you want to work here?”) are never reused. Answers that live in your profile above (phone, graduation date…) are edited here too.</p>
