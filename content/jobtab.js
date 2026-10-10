@@ -99,6 +99,7 @@
       if (posting.description.length > current.posting.description.length * 1.2) {
         current.posting = posting;
         ask({ type: 'job-detected', posting });
+        render();
       }
       return;
     }
@@ -198,6 +199,74 @@
     } else {
       c.note = 'No application link found on this page. Use the page’s Apply button, then JobScript can fill the form.';
     }
+    render();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Your own resume for this job, dropped on the Job tab
+
+  const MAX_DROP_BYTES = 5 * 1024 * 1024;
+
+  function readAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // The application is open on this page: a form here (Greenhouse), or a dialog with fields in it
+  // (Handshake's Apply dialog). Not Handshake's job page by itself, whose only field is search.
+  function applicationOpen(p) {
+    if (p.applyHere) return true;
+    return [...document.querySelectorAll('[role="dialog"]')].some((d) => d.getClientRects().length && d.querySelector('input:not([type=hidden]), select, textarea'));
+  }
+
+  function resumeName(c) {
+    const dup = c.info && c.info.duplicate;
+    return c.resumeName || (dup && dup.by === 'this job' && dup.tailoredFileName) || '';
+  }
+
+  async function useResume(file) {
+    const c = current;
+    if (!c) return;
+    if (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) {
+      c.note = 'Please use a PDF of your resume.';
+      return render();
+    }
+    if (file.size > MAX_DROP_BYTES) {
+      c.note = 'That PDF is larger than 5 MB.';
+      return render();
+    }
+    let res;
+    try {
+      res = await ask({ type: 'job-resume', url: c.posting.url, name: file.name, data: await readAsBase64(file) });
+    } catch (e) {
+      res = { ok: false, error: 'Couldn’t read the file.' };
+    }
+    if (!res.ok) {
+      c.note = 'Couldn’t use that file: ' + res.error;
+      return render();
+    }
+    c.resumeName = res.name;
+    if (!c.saved) c.saved = 'Saved';
+    const p = c.posting;
+    if (p.readOnly || !applicationOpen(p)) {
+      const how = p.readOnly ? `Apply opens the employer’s application, and JobScript attaches it there.`
+        : p.site === 'Handshake' ? 'Press Handshake’s Apply button, then Fill this page: JobScript uploads it to your Handshake documents and picks it.'
+          : 'Open the application, then Fill this page and JobScript attaches it.';
+      c.note = `Saved ${res.name} as your resume for this job. ${how}`;
+      return render();
+    }
+    // The application is open: fill it now, with this resume (the fill finds it with the job).
+    c.note = `Attaching ${res.name}…`;
+    render();
+    P.openTab('apply');
+    const fill = await ask({ type: 'fill-self' });
+    if (current !== c) return;
+    c.note = fill.ok ? `Saved ${res.name} as your resume for this job and filled the application. Check it before you submit.` : `Saved ${res.name}, but couldn’t fill: ${fill.error}`;
+    if (!fill.ok) P.openTab('job');
     render();
   }
 
@@ -311,6 +380,16 @@
       },
     ];
     if (c.referrals) blocks.push(...referralBlocks());
+    const name = resumeName(c);
+    blocks.push({
+      kind: 'drop',
+      title: 'Your resume for this job',
+      text: name ? `Using ${name}. Drop another PDF to replace it.` : 'Made your own resume for this job? Drop the PDF here and JobScript attaches it instead of your master resume.',
+      prompt: name ? 'Drop a different resume PDF, or click to choose' : 'Drop your resume PDF here, or click to choose',
+      accept: 'application/pdf,.pdf',
+      onFile: useResume,
+    });
+    blocks.push({ kind: 'copy', title: `Job description (${p.description.length.toLocaleString()} characters)`, text: [p.title, p.company].filter(Boolean).join(' · ') + '\n\n' + p.description });
     const more = [];
     if (a && a.score && !c.busy) more.push({ label: a.score.stale ? 'Rescore' : 'Score again', ariaLabel: 'Score this job again with Claude', onClick: () => analyze(true) });
     if (c.info && !c.info.aiReady) more.push({ label: 'Options', ariaLabel: 'Open JobScript options', onClick: () => ask({ type: 'open-options' }) });
