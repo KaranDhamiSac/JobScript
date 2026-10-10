@@ -2697,6 +2697,121 @@
     return { handled: new Set([f.el]), attached };
   }
 
+  // Handshake's Apply dialog has no file field for the resume: it attaches one of the documents
+  // in your Handshake account. To send the resume made for this job, JobScript takes the
+  // attached one off this application (Remove; it stays in your documents), uploads yours with
+  // Handshake's own uploader, waits for it to show up in your documents and picks it. Your
+  // master resume isn't uploaded: Handshake's pick of your documents stays. Never submits.
+  // Returns { handled, attached, note }.
+  const LIBRARY_MAX_BYTES = 1024 * 1024; // Handshake refuses bigger files
+  const LIBRARY_UPLOAD_MS = 60000; // uploading, then "Converting...", can take a while
+
+  function docBase(name) {
+    return clean(String(name || '').replace(/\.(pdf|docx?)$/i, '')).toLowerCase();
+  }
+
+  // The dialog's Resume section (a fieldset, or the block under a "Resume" heading).
+  function resumeSlot() {
+    const root = findRoot().root;
+    const dialog = root.closest('[role="dialog"]') || root;
+    const heading = [...dialog.querySelectorAll('legend, h3, h4, h5, [role="heading"]')].find((h) => /^resume\b/i.test(clean(h.textContent)));
+    if (!heading) return null;
+    let slot = heading.closest('fieldset');
+    for (let i = 0, n = heading.parentElement; !slot && n && i < 4; i++, n = n.parentElement) {
+      if (n.querySelector('button, input')) slot = n;
+    }
+    return slot;
+  }
+
+  // The document attached in the slot (not one listed in the document search).
+  function slotShows(slot, name) {
+    const copy = slot.cloneNode(true);
+    copy.querySelectorAll('[role="listbox"], [role="option"], legend, h3, h4, h5, label').forEach((n) => n.remove());
+    return docBase(copy.textContent).includes(docBase(name));
+  }
+
+  function libraryOption(slot, name) {
+    return [...slot.querySelectorAll('[role="option"]')].find((o) => docBase(o.textContent).includes(docBase(name))) || null;
+  }
+
+  function searchLibrary(slot, name) {
+    const box = slot.querySelector('[data-hook="apply-modal-document-search"] input, input[type="search"], input[role="combobox"]');
+    if (!box || clean(box.value).toLowerCase() === docBase(name)) return;
+    setNativeValue(box, docBase(name));
+    box.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  async function attachToDocumentLibrary(resume, source) {
+    const done = (attached, note) => {
+      const dialog = findRoot().root.closest('[role="dialog"]') || findRoot().root;
+      // File fields in the dialog are Handshake's uploader, not for the normal fill.
+      const files = new Set(dialog.querySelectorAll('input[type="file"]'));
+      files.forEach((el) => handled.add(el));
+      return { handled: files, attached, note };
+    };
+    let slot = resumeSlot();
+    if (!slot) return done(false, '');
+    const current = () => {
+      const copy = slot.cloneNode(true);
+      copy.querySelectorAll('[role="listbox"], legend, h3, h4, h5, label, button, input, p').forEach((n) => n.remove());
+      return clean(copy.textContent);
+    };
+    if (source !== 'tailor' && source !== 'job') {
+      const what = current() ? `Handshake attached ${current()} from your Handshake documents. ` : '';
+      return done(false, what + (source === 'ask' ? 'Make a resume for this job on the Job tab, then fill again to send it instead. ' : ''));
+    }
+    if (slotShows(slot, resume.name)) return done(true, `Your resume for this job (${resume.name}) is attached. `);
+    const bytes = resume.size || Math.floor(String(resume.data || '').length * 0.75);
+    if (bytes > LIBRARY_MAX_BYTES) {
+      return done(false, `Your resume for this job is ${(bytes / 1048576).toFixed(1)} MB and Handshake only takes files up to 1 MB, so Handshake’s pick is still attached. `);
+    }
+
+    // Take the attached document off this application to show the search and the uploader.
+    if (!slot.querySelector('input[type="file"], input[type="search"], [role="listbox"]')) {
+      const remove = [...slot.querySelectorAll('button')].find((b) => {
+        const text = clean(b.textContent + ' ' + (b.getAttribute('aria-label') || ''));
+        return /\b(remove|change|replace|clear)\b/i.test(text) && !/delete|submit|apply/i.test(text);
+      });
+      if (!remove) return done(false, `Couldn’t change the attached resume on Handshake. Remove it and pick ${resume.name} yourself. `);
+      remove.click();
+      await waitFor(() => (slot = resumeSlot()) && slot.querySelector('input[type="file"], input[type="search"], [role="listbox"]'), 4000);
+      if (!slot) return done(false, '');
+    }
+
+    // Already in your documents (uploaded on an earlier fill): pick it.
+    searchLibrary(slot, resume.name);
+    let option = await waitFor(() => (slot = resumeSlot()) && libraryOption(slot, resume.name), 1500);
+    let uploaded = false;
+    if (!option) {
+      const input = slot.querySelector('input[type="file"]');
+      if (!input || !attachFile(input, resume)) {
+        return done(false, `Couldn’t find Handshake’s uploader. Upload ${resume.name} in the Resume section yourself. `);
+      }
+      handled.add(input);
+      uploaded = true;
+      const end = Date.now() + LIBRARY_UPLOAD_MS;
+      while (Date.now() < end) {
+        await sleep(500);
+        slot = resumeSlot();
+        if (!slot) break;
+        if (slotShows(slot, resume.name)) return done(true, `Uploaded your resume for this job (${resume.name}) to your Handshake documents and attached it. `);
+        const refused = /less than 1 ?MB|couldn.?t upload|upload failed|try again/i.exec(slot.textContent);
+        if (refused) return done(false, `Handshake didn’t take ${resume.name}: “${clean(refused.input.slice(refused.index, refused.index + 80))}”. `);
+        if (/uploading|converting/i.test(slot.textContent)) continue;
+        option = libraryOption(slot, resume.name);
+        if (option) break;
+        searchLibrary(slot, resume.name);
+      }
+    }
+    if (!option) return done(false, `Uploaded ${resume.name}, but it didn’t show up in your Handshake documents in time. Pick it in the Resume section yourself. `);
+    clickOption(option);
+    const ok = await waitFor(() => (slot = resumeSlot()) && slotShows(slot, resume.name), 4000);
+    if (!ok) return done(false, `${resume.name} is in your Handshake documents; pick it in the Resume section. `);
+    return done(true, uploaded
+      ? `Uploaded your resume for this job (${resume.name}) to your Handshake documents and attached it. `
+      : `Attached your resume for this job (${resume.name}) from your Handshake documents. `);
+  }
+
   function summary() {
     const c = counts();
     return {
@@ -3353,6 +3468,8 @@
       globalThis.JobScriptBank.reset();
       // On a later step of a multi-step form, a resume attached earlier is left alone.
       const step = !!(opts && opts.step);
+      // Handshake attaches resumes from your Handshake documents, not through a file field.
+      const library = !!(currentSite() && currentSite().documentLibrary) && !step;
       session = {
         site,
         profile,
@@ -3360,7 +3477,7 @@
         learning: saved.learning,
         steps: saved.steps,
         stepIndex: -1,
-        note: resumeNote(resumeSource, resume, step) + siteWarning() + DEFAULT_NOTE,
+        note: (library ? '' : resumeNote(resumeSource, resume, step)) + siteWarning() + DEFAULT_NOTE,
         forceResume: !!tailored && !step,
         tailoredId: tailoredId || (forJob ? docs.tailoredId : ''),
         resumeSource,
@@ -3380,7 +3497,11 @@
         offerLauncher();
         globalThis.JobScriptPanel.open();
       }
-      const first = await attachResumeFirst(root, profile, resume);
+      const first = library ? await attachToDocumentLibrary(resume, resumeSource) : await attachResumeFirst(root, profile, resume);
+      if (first.note) {
+        session.note = first.note + session.note;
+        renderPanel();
+      }
       if (first.attached && currentSite() && currentSite().resumeReloads) {
         // iCIMS sends the page off to read the resume as soon as it's attached.
         session.note = 'Attached your resume. The site reloads the page to read it; press Fill this page again when it’s back.';
