@@ -20,6 +20,7 @@ JobScript stores the details you enter on its options page:
 - the postings of job pages you open with JobScript's button showing (the most recent 300), so the Job tab and later tailoring don't need to read the page again, and each job's match score with a fingerprint of the resume version it was made from (the most recent 300)
 - the bullets you lock on the tailoring screen, and your choice of what to attach when there's no resume made for a job
 - resumes you upload for a specific job, or tailored resumes you approve, saved with their application (the most recent 60)
+- documents applications ask for besides a resume (a transcript, a cover letter, a writing sample), up to 20 PDFs: ones you add on the options page, and, unless you turn off **Keep documents I upload to applications**, copies of PDFs you upload to an application yourself. Each time one is kept, a notice on the page says so and has a button to remove it. They are only attached to applications that ask for that document
 - the full text of each job posting you fill an application for, saved with its tracker entry (the most recent 300), and Claude's breakdown of it once you tailor or write a cover letter
 - company profiles you research: the company's name and website, and its mission, values, products, news and culture as found on the web, each with its source address (the most recent 200), plus anything you add
 - cover letters you save, as text and PDF, with their application (the most recent 150), and your research mode and cover letter tone and length
@@ -54,6 +55,7 @@ When you click **Fill this page** or press the shortcut, JobScript puts your inf
 
 - The job site, and the employer it serves, can read what is in its form fields, even before you submit.
 - Some sites, including Lever, Ashby, Workday and iCIMS, upload and read your resume as soon as it is attached. iCIMS reloads the page to do so.
+- On Handshake, documents are picked from your Handshake account. To send the resume made for a job, or a transcript or other document JobScript keeps, JobScript uploads it with Handshake's own "Upload new" button, which adds it to the documents in your Handshake account (where your school's career center may see them), then picks it. A document Handshake already has is picked without uploading it again.
 - For searchable fields such as school or location, JobScript types into the site's search box to find the matching option, so the site's own search receives that text.
 
 JobScript never submits an application for you.
