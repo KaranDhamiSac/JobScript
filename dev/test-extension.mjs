@@ -17,6 +17,11 @@ const HEADED = process.argv.includes('--headed');
 // path on one, from disk. Nothing for this URL ever reaches Greenhouse.
 const MOCK_URL = 'https://job-boards.greenhouse.io/jobscript-test/jobs/1';
 const LIVE_URL = 'https://job-boards.greenhouse.io/discord/jobs/8806163002';
+// Handshake job pages from dev/fixtures, served at made-up job IDs on Handshake's real host.
+const HANDSHAKE = {
+  'https://app.joinhandshake.com/jobs/12345678': 'handshake.html',
+  'https://app.joinhandshake.com/job-search/23456789?page=1&per_page=25': 'handshake-search.html',
+};
 // The mock form's own copy of the scripts and its chrome.storage stub are stripped, so only the
 // installed extension runs on it.
 const MOCK_HTML = fs.readFileSync(path.join(DEV, 'mock-form.html'), 'utf8')
@@ -46,6 +51,7 @@ try {
     const req = route.request();
     if (!/^(GET|HEAD|OPTIONS)$/i.test(req.method())) { blocked.push(`${req.method()} ${req.url()}`); return route.abort(); }
     if (req.url().startsWith(MOCK_URL)) return route.fulfill({ contentType: 'text/html', body: MOCK_HTML });
+    if (HANDSHAKE[req.url()]) return route.fulfill({ contentType: 'text/html', body: fs.readFileSync(path.join(DEV, 'fixtures', HANDSHAKE[req.url()]), 'utf8') });
     return route.continue();
   });
 
@@ -90,6 +96,22 @@ try {
   }, MOCK_URL).catch((e) => ({ error: e.message }));
   const firstName = await mock.locator('input[name*="first" i], input[id*="first" i]').first().inputValue().catch(() => '');
   check(firstName === PROFILE.firstName, 'fill puts the fake profile into the form', result && result.error ? result.error : `first name = "${firstName}"`);
+
+  // 4. Handshake: the floating button on a job page and the search split view, and the job
+  // page's cut-short description expanded
+  for (const url of Object.keys(HANDSHAKE)) {
+    const page = await openAndCheck(url, `Handshake ${HANDSHAKE[url]}`);
+    const button = await page.waitForFunction(() => {
+      const host = [...document.documentElement.children, ...document.body.children].find((e) => e.tagName.toLowerCase() === 'jobscript-panel');
+      return !!host;
+    }, null, { timeout: 8000 }).then(() => true, () => false);
+    check(button, `Handshake ${HANDSHAKE[url]}: job found and the JobScript button shown`);
+    if (HANDSHAKE[url] === 'handshake.html') {
+      const more = await page.waitForFunction(() => /charting library/.test(document.body.textContent), null, { timeout: 5000 }).then(() => true, () => false);
+      check(more, 'Handshake: the description\'s More button is pressed so the whole description is read');
+    }
+    await page.close();
+  }
 
   if (LIVE) await openAndCheck(LIVE_URL, 'live Greenhouse posting');
 
