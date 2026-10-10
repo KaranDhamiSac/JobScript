@@ -168,7 +168,29 @@ async function showTodayProgress() {
   document.getElementById('today-progress').textContent = `Today: ${applied} / ${dailyGoal} applied`;
 }
 
+// ---------------------------------------------------------------------------
+// Self-check: whether JobScript's content script is running in this tab, and which version is
+// installed, so a stale or broken install is obvious. The check runs in the content scripts' own
+// isolated world, so it sees their globals; pages JobScript can't access just say "no".
+
+async function showSelfCheck() {
+  const version = chrome.runtime.getManifest().version;
+  let active = false;
+  try {
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: () => !!(globalThis.__jobscriptFill || globalThis.JobScriptJobTab),
+    });
+    active = !!(res && res.result);
+  } catch (e) {
+    active = false;
+  }
+  document.getElementById('self-check').textContent = `Content script active on this tab: ${active ? 'yes' : 'no'} · v${version}`;
+}
+
 showProfileStatus();
 showShortcut();
+showSelfCheck();
 setUpLearn();
 showTodayProgress();

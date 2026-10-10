@@ -96,6 +96,7 @@ kbd {
 .result.err { background: var(--err-bg); color: var(--err-fg); }
 
 .footnote { font-size: 11px; margin: 0; }
+.self-check { font-size: 11px; margin: 8px 0 0; }
 
 body { width: 360px; }
 button.secondary.wide {
