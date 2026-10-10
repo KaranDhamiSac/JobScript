@@ -31,6 +31,14 @@
         <p>What you'll do: build features in React and TypeScript, write tests, join code reviews.</p>
         <button type="button" aria-label="Show more (Software Engineering Intern)">More</button>
       </div>
+      <script>
+        // Like Handshake: the rest of the description only enters the page when More is pressed.
+        document.querySelector('button[aria-label^="Show more"]').addEventListener('click', (e) => {
+          e.target.insertAdjacentHTML('beforebegin', '<p>Requirements: one year of JavaScript; you will pair with a mentor on the Contoso charting library.</p>');
+          e.target.textContent = 'Less';
+          e.target.setAttribute('aria-label', 'Show less (Software Engineering Intern)');
+        }, { once: true });
+      </script>
     </div>
     <div>
       <div><h3>What they're looking for</h3></div>

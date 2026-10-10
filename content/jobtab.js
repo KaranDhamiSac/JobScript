@@ -65,7 +65,24 @@
     }
   }
 
+  // Handshake shows the first lines of a job description and leaves the rest out of the page
+  // until its "More" button is pressed. Pressing it only expands the text in place, so the
+  // Job tab does that once per button and the next scan reads the whole description.
+  const expanded = new WeakSet();
+
+  function expandDescription() {
+    if (!/(^|\.)joinhandshake\.com$/.test(location.hostname)) return;
+    const pane = document.querySelector('[data-hook="job-details-page"], [data-hook="right-content"]');
+    if (!pane) return;
+    for (const button of pane.querySelectorAll('button[aria-label^="Show more"]')) {
+      if (expanded.has(button)) continue;
+      expanded.add(button);
+      button.click();
+    }
+  }
+
   async function scan() {
+    expandDescription();
     let posting = null;
     try {
       posting = D.detect(document, location.href);
