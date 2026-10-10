@@ -1,5 +1,5 @@
 // Tests background.js's Job tab messages (job-detected, job-analyze, job-save, job-open,
-// job-apply) and the read-only rules for LinkedIn, Indeed and Glassdoor, with a fake chrome API
+// job-apply, job-resume) and the read-only rules for LinkedIn, Indeed and Glassdoor, with a fake chrome API
 // and a fake Claude API. Run with: node dev/test-job-background.mjs
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -233,6 +233,19 @@ await test('every site: read-only Job tab scripts are registered only while the 
   await listeners.changed({ panelSettings: { newValue: { anySite: false } } }, 'local');
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(registered.length, 0);
+});
+
+await test('a resume dropped on the Job tab is kept with the job and found by the fill', async () => {
+  const pdf = Buffer.from('%PDF-1.4\n%%EOF').toString('base64');
+  assert.equal(await send({ type: 'job-resume', url: posting.url, name: 'Mine.pdf', data: pdf }, fromPage), undefined);
+  const bad = await send({ type: 'job-resume', url: posting.url, name: 'notes.pdf', data: Buffer.from('hello').toString('base64') }, fromTab(7));
+  assert.equal(bad.ok, false);
+  const res = await send({ type: 'job-resume', url: posting.url, name: 'Mine.pdf', data: pdf }, fromTab(7));
+  assert.deepEqual([res.ok, res.name], [true, 'Mine.pdf']);
+  const docs = await S.jobDocuments({ url: posting.url, company: posting.company, title: posting.title });
+  assert.equal(docs.tailoredId, res.tailoredId);
+  assert.equal(docs.tailored.name, 'Mine.pdf');
+  assert.equal(docs.app.tailoredFileName, 'Mine.pdf');
 });
 
 console.log(`\n${passed} tests passed`);

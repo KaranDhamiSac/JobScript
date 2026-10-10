@@ -640,6 +640,27 @@ async function jobOpen(msg, sender) {
   return { ok: true };
 }
 
+// A resume you dropped on the Job tab: kept with this job's tracker entry, so a fill of its
+// application attaches it (on Handshake, through your Handshake documents).
+async function jobResume(msg) {
+  const url = httpUrl(msg.url);
+  const posting = url && (await JobScriptStorage.getPosting(url));
+  if (!posting) return { ok: false, error: 'Open the job page again so JobScript can read it.' };
+  let record;
+  try {
+    record = JobScriptStorage.sanitizeResume({ name: String(msg.name || ''), data: msg.data, savedAt: new Date().toISOString() });
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  const id = String(Date.now()) + Math.random().toString(36).slice(2, 7);
+  await JobScriptStorage.saveTailored(id, {
+    ...record, createdAt: new Date().toISOString(), company: posting.company, title: posting.title, url: posting.url, uploaded: true,
+  });
+  await JobScriptStorage.saveJob({ url: posting.url, company: posting.company, title: posting.title, site: posting.site, jobId: posting.jobId });
+  await JobScriptStorage.updateApplication(posting.url, { tailoredId: id, tailoredFileName: record.name });
+  return { ok: true, tailoredId: id, name: record.name };
+}
+
 // Apply: opens the application's address (read from the posting) in a new tab beside this one.
 // Never one on LinkedIn, Indeed or Glassdoor: there you press their Apply button yourself.
 async function jobApply(msg, sender) {
@@ -1018,9 +1039,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true, estimate: JobScriptAI.estimateWebSearchCost() });
     return false;
   }
-  if (msg.type === 'job-detected' || msg.type === 'job-analyze' || msg.type === 'job-save' || msg.type === 'job-open' || msg.type === 'job-apply') {
+  if (['job-detected', 'job-analyze', 'job-save', 'job-open', 'job-apply', 'job-resume'].includes(msg.type)) {
     if (!isOwnContentScript(sender)) return false;
-    const handler = { 'job-detected': jobDetected, 'job-analyze': jobAnalyze, 'job-save': jobSave, 'job-open': jobOpen, 'job-apply': jobApply }[msg.type];
+    const handler = { 'job-detected': jobDetected, 'job-analyze': jobAnalyze, 'job-save': jobSave, 'job-open': jobOpen, 'job-apply': jobApply, 'job-resume': jobResume }[msg.type];
     handler(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: 'Something went wrong in JobScript.' }));
     return true;
   }
