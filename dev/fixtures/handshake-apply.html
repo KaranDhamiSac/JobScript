@@ -1,21 +1,26 @@
 <!doctype html>
 <!--
-  Test-only copy of Handshake's Apply dialog, from a live test in October 2026 and
-  docs/platforms/handshake.md (Handshake needs a student account, so this is rebuilt, not saved):
-  - [role=dialog] titled "Apply to <Company>" around [data-hook="apply-modal-content"];
-  - the Resume slot comes with a document from your Handshake account already attached, and
-    there is no input[type=file] until you remove it. Then the slot shows a search of your
-    documents ([data-hook="apply-modal-document-search"]), the list of them, and "Upload Resume";
-  - an upload goes "Uploading..." then "Converting..." and then appears in the list, not attached:
-    you pick it. Files over 1 MB are refused;
+  Test-only copy of Handshake's Apply dialog, matching the live dialog read on 2026-10-10
+  (Handshake needs a student account, so this is rebuilt, not saved; file names are made up):
+  - [role=dialog].rosetta-dialog__sheet titled "Apply to <Company>" (h2) around
+    [data-hook="apply-modal-content"];
+  - one fieldset per document, labelled by an h4 "Attach your resume" / "Attach your cover
+    letter" / "Attach your transcript";
+  - an attached document is a [role=status] .rosetta-inline-alert with the file name in an h5,
+    "Preview document" and an × button labelled "Close" that takes it off this application;
+  - an empty slot has [data-hook="apply-modal-document-search"] with a search combobox ("Search
+    your resumes") whose [role=listbox] of your Handshake documents is hidden until you type,
+    then "or" and an "Upload new" input[type=file][name=file-<Type>] (max 1 MB);
+  - an upload shows "Uploading..." then "Converting..." and then is attached in its slot (the
+    live upload wasn't seen; ?upload=list makes it land in the list instead, to be picked);
   - questions are plain inputs and selects named question_<id>, then gender, race and
     veteran_status;
   - "Submit Application" records window.__submitted, which must stay false.
   Serve the repo root (python3 -m http.server 8765 --bind 127.0.0.1) and open
   /dev/fixtures/handshake-apply.html: the fake profile (dev/stub.js) and a tailored resume for
   this job are loaded, then run await __jobscriptFill({ tailoredId: 'hs-test' }).
-  window.__attached is the document picked for the Resume slot, window.__uploads the files sent.
-  Served at a Handshake URL (dev/test-extension.mjs), only the dialog runs.
+  window.__attached is the document in each slot ({ Resume, 'Cover Letter', Transcript }),
+  window.__uploads the files sent. Served at a Handshake URL, only the dialog runs.
 -->
 <html lang="en">
 <head>
@@ -28,10 +33,10 @@
   .field { margin: 10px 0; }
   .field label { display: block; }
   .rosetta-file__input { position: absolute; width: 1px; height: 1px; opacity: 0; }
-  [role="listbox"] { list-style: none; padding: 0; margin: 4px 0; border: 1px solid #ccc; }
+  [role="listbox"] { border: 1px solid #ccc; margin: 4px 0; }
   [role="option"] { padding: 3px 8px; cursor: pointer; }
-  .chip { display: inline-block; background: #e8eefc; padding: 2px 8px; border-radius: 4px; }
-  .error { color: #b91c1c; }
+  .rosetta-inline-alert { background: #c8f0c8; padding: 6px 10px; border-radius: 6px; display: flex; justify-content: space-between; }
+  .rosetta-inline-alert h5 { margin: 0; font-size: 14px; }
 </style>
 </head>
 <body>
@@ -46,16 +51,17 @@
   <p>Northwind Logistics is looking for a data analyst intern to build Tableau dashboards for our fleet team. You will clean shipment data with SQL and present findings to operations managers.</p>
 </div>
 
-<div role="dialog" data-dialog="true" aria-modal="true" aria-labelledby="apply-title">
-  <h2 id="apply-title">Apply to Northwind Logistics</h2>
-  <button type="button" data-hook="apply-modal-close-button" aria-label="Cancel application">×</button>
-  <div data-hook="apply-modal-content">
+<div role="dialog" class="rosetta-dialog__sheet" aria-labelledby="apply-modal-title-34567890">
+  <div class="rosetta-dialog__overflow">
+    <div>
+      <h2 id="apply-modal-title-34567890">Apply to Northwind Logistics</h2>
+      <button type="button" data-hook="apply-modal-close-button" aria-label="Cancel application">×</button>
+    </div>
+    <div data-hook="apply-modal-content">
     <form id="apply-form">
-      <p>Applying requires a resume</p>
-      <fieldset id="resume-slot">
-        <legend><h4>Resume</h4></legend>
-        <div id="resume-body"></div>
-      </fieldset>
+      <h3>Details from Northwind Logistics:</h3>
+      <p>Applying requires a few documents. Attach them below and get one step closer to your next job!</p>
+      <div id="slots"></div>
 
       <h3 data-hook="work-auth-title">Work authorization (required)</h3>
       <div data-hook="authorized-in-us-radio-group" role="radiogroup" aria-labelledby="auth-q">
@@ -109,8 +115,9 @@
         </select>
       </div>
 
-      <button type="submit" data-hook="submit-application">Submit Application</button>
+      <button type="submit">Submit Application</button>
     </form>
+    </div>
   </div>
 </div>
 
@@ -118,73 +125,96 @@
   // The dialog's behavior, as on Handshake.
   window.__submitted = false;
   window.__uploads = [];
-  window.__attached = 'Master_Resume_2026.pdf';
-  const library = ['Master_Resume_2026.pdf', 'Old_Resume_Spring.pdf', 'Transcript_Unofficial.pdf'];
-  const body = document.getElementById('resume-body');
+  window.__attached = { Resume: 'Master_Resume_2026.pdf', 'Cover Letter': '', Transcript: '' };
+  const uploadToList = /upload=list/.test(location.search);
+  const library = {
+    Resume: ['Master_Resume_2026.pdf', 'Old_Resume_Spring.pdf', 'Old_Resume_Spring.pdf (1)'],
+    'Cover Letter': ['Generic_Cover_Letter.pdf'],
+    Transcript: ['Transcript_Fall_2025.pdf'],
+  };
+  const slotsBox = document.getElementById('slots');
+  let n = 0;
 
   document.getElementById('apply-form').addEventListener('submit', (e) => {
     e.preventDefault();
     window.__submitted = true;
   });
 
-  function attached(name) {
-    window.__attached = name;
-    body.innerHTML = '';
-    const chip = document.createElement('span');
-    chip.className = 'chip';
-    chip.textContent = name;
-    const remove = document.createElement('button');
-    remove.type = 'button';
-    remove.textContent = 'Remove';
-    remove.setAttribute('aria-label', 'Remove ' + name);
-    remove.addEventListener('click', () => picker(''));
-    body.append(chip, ' ', remove);
+  function slot(type) {
+    const fs = document.createElement('fieldset');
+    const id = 'apply-modal-document-heading-34567890-' + n + '-' + n++;
+    fs.setAttribute('aria-labelledby', id);
+    fs.innerHTML = `<div><h4 id="${id}">Attach your ${type.toLowerCase()}</h4></div><div class="slot-body"></div>`;
+    slotsBox.appendChild(fs);
+    const body = fs.querySelector('.slot-body');
+    if (window.__attached[type]) attached(type, body, window.__attached[type]);
+    else picker(type, body, '');
   }
 
-  function picker(status) {
-    window.__attached = '';
+  function attached(type, body, name) {
+    window.__attached[type] = name;
+    body.innerHTML = `<div role="status" aria-label="alert positive" class="rosetta-inline-alert"><div class="rosetta-inline-alert__children">` +
+      `<h5></h5><a class="rosetta-link">Preview document</a>` +
+      (type === 'Resume' ? '<div class="rosetta-checkbox"><label for="def">Set as default resume</label><input name="makeNewResumePublic" type="checkbox" id="def"></div>' : '') +
+      `</div><button type="button" aria-label="Close" class="rosetta-inline-alert__close-button">×</button></div>`;
+    body.querySelector('h5').textContent = name;
+    body.querySelector('button[aria-label="Close"]').addEventListener('click', () => picker(type, body, ''));
+  }
+
+  function picker(type, body, status) {
+    window.__attached[type] = '';
+    const fileId = 'file-' + n++;
     body.innerHTML =
-      '<div data-hook="apply-modal-document-search"><input type="search" role="combobox" aria-label="Search your documents" placeholder="Search documents"></div>' +
-      '<ul role="listbox" aria-label="Your documents"></ul>' +
-      '<p>or</p><label for="file-resume">Upload Resume</label>' +
-      '<input type="file" id="file-resume" class="rosetta-file__input" name="file-Resume" accept=".pdf,.doc,.docx">' +
-      '<p class="status" aria-live="polite"></p>';
-    const search = body.querySelector('input[type=search]');
+      `<div data-hook="apply-modal-document-search"><div class="rosetta-autosuggest">` +
+      `<input role="combobox" type="search" aria-expanded="false" aria-label="Search your ${type.toLowerCase()}s">` +
+      `<div role="listbox" hidden></div></div></div>` +
+      `<span>or</span><div class="rosetta-field rosetta-file"><label for="${fileId}">Upload new</label>` +
+      `<input name="file-${type.replace(/ /g, '')}" type="file" id="${fileId}" accept="application/pdf,application/msword" class="rosetta-file__input">` +
+      `<p class="rosetta-field__helper-text">Max file size: 1 MB</p></div><p class="status"></p>`;
+    const search = body.querySelector('input[role=combobox]');
     const list = body.querySelector('[role=listbox]');
     const statusLine = body.querySelector('.status');
+    statusLine.textContent = status;
     const draw = () => {
       list.innerHTML = '';
-      for (const name of library.filter((n) => n.toLowerCase().includes(search.value.toLowerCase()))) {
-        const li = document.createElement('li');
-        li.setAttribute('role', 'option');
-        li.textContent = name;
-        li.addEventListener('click', () => attached(name));
-        list.appendChild(li);
+      for (const name of library[type].filter((x) => x.toLowerCase().includes(search.value.toLowerCase()))) {
+        const opt = document.createElement('div');
+        opt.setAttribute('role', 'option');
+        opt.setAttribute('aria-selected', 'false');
+        opt.innerHTML = '<span class="rosetta-select__option-ellipsis"></span>';
+        opt.firstChild.textContent = name;
+        opt.addEventListener('click', () => attached(type, body, name));
+        list.appendChild(opt);
       }
     };
-    search.addEventListener('input', draw);
     draw();
-    statusLine.textContent = status;
+    search.addEventListener('focus', () => { list.hidden = false; search.setAttribute('aria-expanded', 'true'); });
+    search.addEventListener('input', () => { list.hidden = false; draw(); });
     body.querySelector('input[type=file]').addEventListener('change', (e) => {
       const file = e.target.files[0];
       if (!file) return;
       if (file.size > 1024 * 1024) {
-        statusLine.className = 'status error';
         statusLine.textContent = 'File size should be less than 1 MB';
         return;
       }
-      window.__uploads.push(file.name);
+      window.__uploads.push(type + ': ' + file.name);
       statusLine.textContent = 'Uploading...';
       setTimeout(() => { statusLine.textContent = 'Converting...'; }, 300);
       setTimeout(() => {
-        library.unshift(file.name);
-        statusLine.textContent = '';
-        draw();
+        library[type].unshift(file.name);
+        if (uploadToList) {
+          statusLine.textContent = '';
+          draw();
+        } else {
+          attached(type, body, file.name);
+        }
       }, 1500);
     });
   }
 
-  attached(window.__attached);
+  slot('Resume');
+  slot('Cover Letter');
+  slot('Transcript');
 </script>
 
 <script>
