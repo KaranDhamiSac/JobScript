@@ -44,9 +44,13 @@
     ['glassdoor.html', 'https://www.glassdoor.com/job-listing/data-analyst-northwind-JV_IC1147401_KO0,12_KE13,22.htm?jl=1009456789012', {
       site: 'Glassdoor', readOnly: true, title: 'Data Analyst', company: 'Northwind', location: 'Sacramento, CA', jobId: '1009456789012',
       pay: /\$68K - \$92K/, description: /Power BI/ }],
-    ['handshake.html', 'https://app.joinhandshake.com/job-search/12345678', {
+    ['handshake.html', 'https://app.joinhandshake.com/jobs/12345678', {
       site: 'Handshake', readOnly: false, title: 'Software Engineering Intern', company: 'Contoso Analytics', location: 'San Francisco, CA',
-      jobId: '12345678', pay: '$45/hr', description: /React and TypeScript/ }],
+      jobId: '12345678', pay: '$45/hr', description: /^At a glance[\s\S]*React and TypeScript[\s\S]*dashboards for hospitals\.$/ }],
+    ['handshake-search.html', 'https://app.joinhandshake.com/job-search/23456789?page=1&per_page=25', {
+      site: 'Handshake', title: 'Data Analyst Intern', company: 'Northwind Logistics', location: 'Sacramento, CA (Hybrid)',
+      jobId: '23456789', pay: '$28 - $32/hr', description: /Tableau dashboards[\s\S]*authorized to work/ }],
+    ['handshake-search.html', 'https://app.joinhandshake.com/job-search?page=1', null],
     ['greenhouse.html', 'https://job-boards.greenhouse.io/northwind/jobs/4012345007', {
       site: 'Greenhouse', title: 'Associate Product Analyst', company: 'Northwind', location: 'New York, NY (Hybrid)', jobId: '4012345007',
       pay: /\$90,000 - \$110,000/, applyHere: true, applyUrl: '', description: /A\/B tests/ }],

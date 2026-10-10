@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- Handshake job search split view (signed in), shaped like the live page in October 2026: the
+     page's first h1 is "Jobs", the result list is on the left (with a search input) and the open
+     job is in [data-hook="right-content"].
+     URL: https://app.joinhandshake.com/job-search/23456789?page=1&per_page=25 -->
+<html lang="en">
+<head><meta charset="utf-8"><title>Jobs | Handshake</title></head>
+<body>
+<main id="skip-to-content">
+  <h1>Jobs</h1>
+  <div data-hook="job-search-filters"><input data-hook="nlw-search-input" type="text" aria-label="Search jobs"></div>
+  <div data-hook="left-content">
+    <div data-hook="job-result-card | 23456789"><a href="/job-search/23456789?page=1">Data Analyst Intern</a> Northwind Logistics</div>
+    <div data-hook="job-result-card | 23456790"><a href="/job-search/23456790?page=1">Marketing Intern</a> Fabrikam</div>
+  </div>
+  <div data-hook="right-content">
+    <div>
+      <a href="/e/45678"><img alt="" src="data:,"></a>
+      <a href="/e/45678"><div>Northwind Logistics</div><div>Transportation &amp; Logistics</div></a>
+    </div>
+    <a href="/jobs/23456789"><h1>Data Analyst Intern</h1></a>
+    <div><button>Save</button><button>Share</button><button>Apply externally</button></div>
+    <div>
+      <div><h3>At a glance</h3></div>
+      <div>$28 - $32/hr</div>
+      <div>Hybrid, based in Sacramento, CA</div>
+      <div>Internship</div>
+    </div>
+    <div>
+      <div><h3>Job description</h3></div>
+      <div>
+        <p>Northwind Logistics is looking for a data analyst intern to build Tableau dashboards for our fleet team.</p>
+        <button type="button" aria-label="Show more (Data Analyst Intern)">More</button>
+      </div>
+    </div>
+    <div>
+      <div><h3>What they're looking for</h3></div>
+      <div>SQL and Excel; must be authorized to work in the US.</div>
+    </div>
+    <div>
+      <div><h3>Similar Jobs</h3></div>
+      <div><h3>Operations Intern</h3><div>Contoso Health</div></div>
+    </div>
+  </div>
+</main>
+</body>
+</html>

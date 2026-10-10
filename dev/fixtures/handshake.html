@@ -1,20 +1,49 @@
 <!doctype html>
-<!-- Handshake job page (signed in), rebuilt from docs/platforms/handshake.md. Only data-hook
-     attributes are stable; classes are styled-components hashes.
-     URL: https://app.joinhandshake.com/job-search/12345678 -->
+<!-- Handshake job page (signed in), shaped like the live page in October 2026: only data-hook
+     attributes are stable (classes are styled-components hashes), the employer logo link comes
+     first with no text, and sections are found by their h3 headings. The description is cut
+     short until "More" is pressed.
+     URL: https://app.joinhandshake.com/jobs/12345678 -->
 <html lang="en">
-<head><meta charset="utf-8"><title>Software Engineering Intern | Handshake</title></head>
+<head><meta charset="utf-8"><title>Software Engineering Intern | Contoso Analytics | Handshake</title></head>
 <body>
-<main data-hook="job-details-page">
-  <div class="sc-abc123"><a href="/e/98765">Contoso Analytics</a></div>
-  <h1 class="sc-def456">Software Engineering Intern</h1>
-  <div data-hook="job-location">San Francisco, CA</div>
-  <button aria-label="Apply for Software Engineering Intern">Apply</button>
-  <div data-hook="job-description">
-    <p>Contoso Analytics is hiring interns for summer 2027.</p>
-    <p>What you'll do: build features in React and TypeScript, write tests, join code reviews.</p>
-    <p>Requirements: currently pursuing a BS in Computer Science; graduating between December 2027 and June 2028.</p>
-    <p>Pay: $45/hr. Onsite in San Francisco, CA. Relocation assistance available.</p>
+<main id="skip-to-content">
+  <div data-hook="job-details-page">
+    <div class="sc-abc123">
+      <a href="/e/98765"><img alt="" src="data:,"></a>
+      <a href="/e/98765"><div>Contoso Analytics</div><div>Internet &amp; Software</div></a>
+    </div>
+    <a href="/jobs/12345678"><h1 class="sc-def456">Software Engineering Intern</h1></a>
+    <div>Posted 2 weeks ago ∙ Apply by December 1, 2026</div>
+    <div><button>Save</button><button>Share</button><button aria-label="Apply for Software Engineering Intern">Apply</button></div>
+    <div>
+      <div><h3>At a glance</h3></div>
+      <div>$45/hr</div>
+      <div>Onsite, based in San Francisco, CA</div>
+      <div>Work in person from the location</div>
+      <div>Internship</div>
+      <div>Full-time ∙ From June 1, 2027 to August 20, 2027</div>
+    </div>
+    <div>
+      <div><h3>Job description</h3></div>
+      <div>
+        <p>Contoso Analytics is hiring interns for summer 2027.</p>
+        <p>What you'll do: build features in React and TypeScript, write tests, join code reviews.</p>
+        <button type="button" aria-label="Show more (Software Engineering Intern)">More</button>
+      </div>
+    </div>
+    <div>
+      <div><h3>What they're looking for</h3></div>
+      <div>Currently pursuing a BS in Computer Science; graduating between December 2027 and June 2028.</div>
+    </div>
+    <div>
+      <div><h3>About the employer</h3></div>
+      <div>Contoso Analytics builds dashboards for hospitals.</div>
+    </div>
+    <div>
+      <div><h3>Similar Jobs</h3></div>
+      <div><h3>Frontend Intern</h3><div>Fabrikam ∙ Remote</div></div>
+    </div>
   </div>
 </main>
 </body>
