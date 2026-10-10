@@ -173,6 +173,10 @@
     .links a { display: block; color: var(--accent); font-size: 12px; margin: 2px 0; overflow-wrap: anywhere; }
     .drop { display: block; width: 100%; padding: 14px 10px; border: 2px dashed var(--border); border-radius: 8px; background: none; color: var(--muted); font: inherit; font-size: 12px; text-align: center; cursor: pointer; }
     .drop.over, .drop:hover { border-color: var(--accent); color: var(--fg); }
+    .notice { padding: 10px 12px; display: block; width: auto; }
+    .notice .notice-text { margin: 4px 0 8px; overflow-wrap: anywhere; }
+    .notice .btns { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .notice .icon { margin-left: auto; }
     .copybox { width: 100%; min-height: 110px; font: inherit; font-size: 12px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--fg); resize: vertical; }
   `;
 
@@ -783,7 +787,61 @@
     if (mode === 'panel') draw();
   }
 
+  // A notice in the top left corner, apart from the panel: what JobScript just did and a button
+  // or two to undo it ("Remove Transcript.pdf"). Goes away by itself after timeoutMs (default
+  // 15 s) unless the pointer is on it, or when one of its buttons is pressed.
+  let notice = null;
+
+  function notify({ text, actions, timeoutMs }) {
+    if (notice) notice.remove();
+    const host = document.createElement('jobscript-notice');
+    const root = host.attachShadow({ mode: 'closed' });
+    applyStyles(root);
+    const close = () => {
+      host.remove();
+      if (notice === host) notice = null;
+    };
+    const buttons = (actions || []).map((a) => {
+      const b = el('button', { type: 'button', class: 'btn' + (a.primary ? ' primary' : ''), text: a.label, 'aria-label': a.ariaLabel || a.label });
+      b.addEventListener('click', trusted(async () => {
+        b.disabled = true;
+        try {
+          const next = await a.onClick();
+          if (typeof next === 'string') {
+            body.textContent = next; // what happened, e.g. "Removed Transcript.pdf."
+            row.remove();
+            setTimeout(close, 4000);
+          } else {
+            close();
+          }
+        } catch (e) {
+          b.disabled = false;
+        }
+      }));
+      return b;
+    });
+    const body = el('p', { class: 'notice-text', text });
+    const row = el('div', { class: 'btns' }, [...buttons, el('button', { type: 'button', class: 'icon', text: '×', 'aria-label': 'Dismiss', onclick: trusted(close) })]);
+    root.appendChild(el('div', { class: 'panel notice', role: 'status', 'aria-live': 'polite' }, [el('strong', { text: 'JobScript' }), body, row]));
+    const pin = { all: 'initial', position: 'fixed', 'z-index': '2147483647', display: 'block', top: '12px', left: '12px', width: '320px', 'max-width': 'calc(100vw - 24px)' };
+    for (const [k, v] of Object.entries(pin)) host.style.setProperty(k, v, 'important');
+    document.documentElement.appendChild(host);
+    notice = host;
+    let hovering = false;
+    host.addEventListener('mouseenter', () => { hovering = true; });
+    host.addEventListener('mouseleave', () => { hovering = false; });
+    const end = Date.now() + (timeoutMs || 15000);
+    const timer = setInterval(() => {
+      if (!host.isConnected) return clearInterval(timer);
+      if (!hovering && Date.now() > end) {
+        clearInterval(timer);
+        close();
+      }
+    }, 500);
+  }
+
   globalThis.JobScriptPanel = {
+    notify,
     // Updates the Apply tab. After you close the panel, the update waits behind the button.
     render(next) {
       state = next;
