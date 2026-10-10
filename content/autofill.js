@@ -1651,6 +1651,79 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Documents you upload yourself. With "Keep documents you upload" on (the default), a PDF you
+  // pick for a transcript, cover letter or other document is kept on this device, to attach
+  // the next time an application asks for that document; a resume you pick is kept as this
+  // job's resume. A notice in the top left says what was kept, with a button to remove it.
+  // Only your own picks count (trusted events), so JobScript's attachments aren't kept again.
+
+  // What an upload field is for: its section's heading ("Attach your transcript" ->
+  // "transcript"), else its label.
+  function uploadLabel(input) {
+    const fs = input.closest('fieldset');
+    const h = fs && fs.querySelector('legend, h3, h4');
+    const heading = clean(h ? h.textContent : '').replace(/^(?:attach|upload|add)\s+(?:your\s+|an?\s+)?/i, '').replace(/\s*\((?:required|optional)\)$/i, '');
+    if (heading) return heading;
+    return clean(labelText(input)).replace(/^(?:attach|upload|add)\s+(?:your\s+|an?\s+)?/i, '').replace(/\s*\*$/, '');
+  }
+
+  function fileToBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function keepUpload(e) {
+    const input = e.target;
+    if (!e.isTrusted || !input || input.tagName !== 'INPUT' || input.type !== 'file') return;
+    const file = input.files && input.files[0];
+    if (!file || (file.type !== 'application/pdf' && !/\.pdf$/i.test(file.name)) || file.size > 5 * 1024 * 1024) return;
+    let settings;
+    try {
+      settings = await S.getFillSettings();
+    } catch (err) {
+      return; // JobScript was reloaded since this page loaded
+    }
+    if (!settings.keepDocuments) return;
+    const label = uploadLabel(input);
+    const kind = S.documentKind(label);
+    if (!kind) return;
+    const data = await fileToBase64(file);
+    const P = globalThis.JobScriptPanel;
+    const off = ' Turn this off on the options page (Keep documents you upload).';
+    if (kind === 'resume') {
+      const res = await ask({ type: 'job-resume', url: location.href, name: file.name, data });
+      if (!res || !res.ok) return; // no job saved for this page: nothing to keep it with
+      P.notify({
+        text: `Kept ${res.name} as your resume for this job, on this device.${off}`,
+        actions: [{ label: `Remove ${res.name}`, onClick: async () => {
+          await ask({ type: 'job-resume-remove', url: location.href, tailoredId: res.tailoredId });
+          return `Removed ${res.name} from JobScript.`;
+        } }],
+      });
+      return;
+    }
+    let doc;
+    try {
+      doc = await S.saveDocument({ kind, label, name: file.name, data });
+    } catch (err) {
+      return;
+    }
+    P.notify({
+      text: `Kept ${doc.name} as your ${doc.label.toLowerCase()} on this device, to attach when an application asks for it.${doc.replaced ? ` It replaces ${doc.replaced}.` : ''}${off}`,
+      actions: [{ label: `Remove ${doc.name}`, onClick: async () => {
+        await S.removeDocument(doc.id);
+        return `Removed ${doc.name} from JobScript.`;
+      } }],
+    });
+  }
+
+  document.addEventListener('change', (e) => { keepUpload(e).catch(() => {}); }, true);
+
+  // ---------------------------------------------------------------------------
   // Highlighting
 
   const STATUS_CLASS = { filled: FILLED_CLASS, needs: NEEDS_CLASS, suggested: SUGGESTED_CLASS };
