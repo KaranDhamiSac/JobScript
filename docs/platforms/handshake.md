@@ -2,7 +2,7 @@
 
 > Summary: Handshake (students and alumni) needs a login, usually through school SSO, and applying happens in a single React modal on `app.joinhandshake.com` (or a `<school>.joinhandshake.com` subdomain). The modal is short. It holds document slots (resume / cover letter / transcript / other) that you fill by picking from your Handshake document library or uploading a file of 1 MB or less. Below that come US work-authorization radios, optional yes/no "Screening Questions", and, for Greenhouse-integrated employers, Greenhouse custom/EEOC/demographic questions shown inside Handshake. "Apply externally" jobs use the same modal, and then "Step 2: External Application" opens the employer site. Most profile data (name, email, education) is sent automatically, so a text-field autofill has little to fill. The real work is picking documents and answering radio questions. Live DOM was not verified (login required). Route names, `data-hook` values, the 1 MB limit, question types and UI strings were verified from Handshake's public production JS bundle.
 > Difficulty: **medium**. The flow is simple, but there is little open-source coverage, `data-hook` attributes are the only stable anchors (classes are styled-components hashes), and you cannot test without a student account.
-> Last researched: 2026-10-04
+> Last researched: 2026-10-04. Live checks while signed in: 2026-10-09 (see "Live findings" below)
 
 ## 1. Detection
 
@@ -111,6 +111,12 @@ IDs are numeric, about 7-9 digits (e.g. a placeholder `/job-search/12345678`). T
 - **Anti-bot:** Cloudflare managed challenge on `app.joinhandshake.com/job-search` for non-browser clients [verified-live] [1]. The apply flow fires tracking events (`opened-application-modal`, `job_application_start`, `applications-modal-submit-click`, `StartApplyFlowTracking`) [verified-live] [2], so bulk applying is easy to spot. I found no public reports of bans for auto-apply on Handshake.
 - **Career-center visibility:** schools see student applications and can restrict applying. Mass auto-apply could draw action from the school as well as from Handshake [verified-live] [3] (restriction strings), [unverified] (consequences inferred).
 - **JobScript stance:** filling the open modal (choosing documents, answering radios the user has pre-approved) without clicking Apply, Quick apply, Submit or Step 2 is user-assisted autofill. It does not scrape and does not create accounts. The bots in [4][5][6] run whole search loops and submit, which is a different category. Keep Handshake opt-in.
+
+## Live findings (2026-10-09, signed in)
+
+- **Job pages.** `/job-search/<id>` is a split view: the page's first `h1` is "Jobs", results are on the left, and the open job is in `[data-hook="right-content"]`. `/jobs/<id>` wraps the job in `[data-hook="job-details-page"]`. Neither has `job-details` or `job-description` hooks. The job's `h1` is inside a link to `/jobs/<id>`; the first `a[href^="/e/"]` is the logo with no text. Sections are found by their `h3`: "At a glance" (pay such as "$35/hr", "Onsite, based in San Jose, CA"), "Job description", "What they're looking for", "What this job offers", "About the employer", then "Similar Jobs". The page title is "Title | Company | Handshake" on `/jobs/<id>`, "Jobs | Handshake" in the split view. JobScript reads the pane from "At a glance" up to "Similar Jobs" (`lib/jobDetect.js`).
+- **Cut-short description.** Only the first lines of the description are in the page until the "More" button (`aria-label` starting "Show more") is pressed. It expands in place; nothing loads but an analytics ping. The Job tab presses it once per button (`content/jobtab.js`).
+- **Apply dialog.** `[role=dialog]` titled "Apply to <Company>". It has **no `input[type=file]`**: the Resume section comes with a document from your Handshake account already attached. Removing it (it stays in your documents) shows the document search and the uploader; an upload has to finish ("Uploading...", "Converting...") and appear in the list before it can be picked. Questions are plain inputs and selects named `question_<id>`, then `gender`, `race`, `veteran_status`. JobScript sends a resume made for the job this way (`attachToDocumentLibrary` in `content/autofill.js`; mock in `dev/fixtures/handshake-apply.html`). It never presses Submit.
 
 ## 10. Sources
 
