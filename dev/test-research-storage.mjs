@@ -151,7 +151,7 @@ await test('documents made for a job are found from its employer page, by compan
   const none = await S.jobDocuments({ url: 'https://jobs.lever.co/contoso/x', company: 'Contoso', title: 'Data Engineer' });
   assert.equal(none.tailored, null);
   assert.equal(none.letter, null);
-  assert.deepEqual(await S.getFillSettings(), { resumeFallback: 'master' });
+  assert.deepEqual(await S.getFillSettings(), { resumeFallback: 'master', keepDocuments: true });
 });
 
 console.log(`\n${passed} tests passed`);
