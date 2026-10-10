@@ -3114,6 +3114,9 @@
     const titleEl = !fromTitle && site && site.titleSelector && document.querySelector(site.titleSelector);
     if (titleEl && clean(titleEl.textContent)) fromTitle = { title: clean(titleEl.textContent), company: '' };
     if (fromTitle && fromTitle.company) return fromTitle;
+    // An application dialog titled "Apply to <Company>" (Handshake).
+    const dialogTitle = [...document.querySelectorAll('[role="dialog"] h1, [role="dialog"] h2')].map((h) => clean(h.textContent).match(/^Apply to (.{2,100})$/i)).find(Boolean);
+    if (fromTitle && dialogTitle) return { title: fromTitle.title, company: dialogTitle[1] };
     const ld = jsonLdPosting(document);
     if (ld && ld.title && ld.company) return { title: fromTitle ? fromTitle.title : ld.title, company: ld.company };
     const og = document.querySelector('meta[property="og:site_name"]');
