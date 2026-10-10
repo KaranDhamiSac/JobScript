@@ -661,6 +661,18 @@ async function jobResume(msg) {
   return { ok: true, tailoredId: id, name: record.name };
 }
 
+// "Remove" on the notice after JobScript kept a resume you uploaded: forget it, and unlink it
+// from the job if it's still the one linked there.
+async function jobResumeRemove(msg) {
+  const id = typeof msg.tailoredId === 'string' ? msg.tailoredId : '';
+  if (!id || !(await JobScriptStorage.getTailored(id))) return { ok: false, error: 'Already removed.' };
+  await chrome.storage.local.remove('tailored:' + id);
+  const url = httpUrl(msg.url);
+  const dup = url && (await JobScriptStorage.findDuplicate({ url, jobId: JobScriptStorage.jobIdFromUrl(url) }));
+  if (dup && dup.app.tailoredId === id) await JobScriptStorage.updateApplication(dup.app.url, { tailoredId: '', tailoredFileName: '' });
+  return { ok: true };
+}
+
 // Apply: opens the application's address (read from the posting) in a new tab beside this one.
 // Never one on LinkedIn, Indeed or Glassdoor: there you press their Apply button yourself.
 async function jobApply(msg, sender) {
@@ -1039,9 +1051,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true, estimate: JobScriptAI.estimateWebSearchCost() });
     return false;
   }
-  if (['job-detected', 'job-analyze', 'job-save', 'job-open', 'job-apply', 'job-resume'].includes(msg.type)) {
+  if (['job-detected', 'job-analyze', 'job-save', 'job-open', 'job-apply', 'job-resume', 'job-resume-remove'].includes(msg.type)) {
     if (!isOwnContentScript(sender)) return false;
-    const handler = { 'job-detected': jobDetected, 'job-analyze': jobAnalyze, 'job-save': jobSave, 'job-open': jobOpen, 'job-apply': jobApply, 'job-resume': jobResume }[msg.type];
+    const handler = { 'job-detected': jobDetected, 'job-analyze': jobAnalyze, 'job-save': jobSave, 'job-open': jobOpen, 'job-apply': jobApply, 'job-resume': jobResume, 'job-resume-remove': jobResumeRemove }[msg.type];
     handler(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: 'Something went wrong in JobScript.' }));
     return true;
   }

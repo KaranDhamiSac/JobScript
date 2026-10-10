@@ -1,5 +1,5 @@
 // Tests background.js's Job tab messages (job-detected, job-analyze, job-save, job-open,
-// job-apply, job-resume) and the read-only rules for LinkedIn, Indeed and Glassdoor, with a fake chrome API
+// job-apply, job-resume, job-resume-remove) and the read-only rules for LinkedIn, Indeed and Glassdoor, with a fake chrome API
 // and a fake Claude API. Run with: node dev/test-job-background.mjs
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -246,6 +246,14 @@ await test('a resume dropped on the Job tab is kept with the job and found by th
   assert.equal(docs.tailoredId, res.tailoredId);
   assert.equal(docs.tailored.name, 'Mine.pdf');
   assert.equal(docs.app.tailoredFileName, 'Mine.pdf');
+  // Remove on the notice: forgotten and unlinked from the job.
+  const gone = await send({ type: 'job-resume-remove', url: posting.url, tailoredId: res.tailoredId }, fromTab(7));
+  assert.equal(gone.ok, true);
+  assert.equal(await S.getTailored(res.tailoredId), null);
+  const after = await S.jobDocuments({ url: posting.url, company: posting.company, title: posting.title });
+  assert.equal(after.tailored, null);
+  assert.equal(after.app.tailoredFileName, '');
+  assert.equal((await send({ type: 'job-resume-remove', url: posting.url, tailoredId: res.tailoredId }, fromTab(7))).ok, false);
 });
 
 console.log(`\n${passed} tests passed`);
