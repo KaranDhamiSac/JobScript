@@ -661,6 +661,103 @@ async function jobResume(msg) {
   return { ok: true, tailoredId: id, name: record.name };
 }
 
+// ---------------------------------------------------------------------------
+// Pasted resume or cover letter text (from Jobright, a Claude chat, anywhere): the offscreen page
+// turns it into JobScript's one-page PDF with your name and contact line, on this device. No AI
+// call. pdf-lib is an ES module, which this service worker can't load, hence the page.
+
+const OFFSCREEN_URL = 'offscreen/offscreen.html';
+let offscreenReady = null;
+
+async function ensureOffscreen() {
+  if (!chrome.offscreen) throw new Error('Pasting text needs Chrome. Save it as a PDF and drop that here instead.');
+  if (!offscreenReady) {
+    offscreenReady = (async () => {
+      const url = chrome.runtime.getURL(OFFSCREEN_URL);
+      const open = chrome.runtime.getContexts ? await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [url] }) : [];
+      if (!open.length) {
+        await chrome.offscreen.createDocument({ url: OFFSCREEN_URL, reasons: ['BLOBS'], justification: 'Builds a resume PDF from pasted text on this device.' });
+      }
+    })().catch((e) => {
+      offscreenReady = null;
+      throw e;
+    });
+  }
+  await offscreenReady;
+}
+
+async function buildFromText(kind, text, posting) {
+  await ensureOffscreen();
+  const profile = await JobScriptStorage.getProfile();
+  const res = await chrome.runtime.sendMessage({
+    target: 'offscreen', type: 'build-pdf', kind, text,
+    profile, posting: { title: posting.title, company: posting.company },
+  });
+  return res || { ok: false, error: 'The PDF page did not answer.' };
+}
+
+function pdfFileName(profile, company, suffix) {
+  const part = (s) => String(s || '').replace(/[^A-Za-z0-9]+/g, '');
+  return ([part(profile.firstName), part(profile.lastName), part(company), suffix].filter(Boolean).join('_') || 'Resume') + '.pdf';
+}
+
+// Like jobResume, from pasted text. The PDF is kept with the job and attached when you fill.
+async function jobResumeText(msg) {
+  const url = httpUrl(msg.url);
+  const posting = url && (await JobScriptStorage.getPosting(url));
+  if (!posting) return { ok: false, error: 'Open the job page again so JobScript can read it.' };
+  const text = String(msg.text || '').trim();
+  if (!text) return { ok: false, error: 'Paste the resume text first.' };
+  let built;
+  try {
+    built = await buildFromText('resume', text, posting);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  if (!built.ok) return built;
+  const profile = await JobScriptStorage.getProfile();
+  let record;
+  try {
+    record = JobScriptStorage.sanitizeResume({ name: pdfFileName(profile, posting.company, ''), data: built.data, savedAt: new Date().toISOString() });
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  const id = String(Date.now()) + Math.random().toString(36).slice(2, 7);
+  await JobScriptStorage.saveTailored(id, {
+    ...record, createdAt: new Date().toISOString(), company: posting.company, title: posting.title, url: posting.url, pasted: true, content: built.content,
+  });
+  await JobScriptStorage.saveJob({ url: posting.url, company: posting.company, title: posting.title, site: posting.site, jobId: posting.jobId });
+  await JobScriptStorage.updateApplication(posting.url, { tailoredId: id, tailoredFileName: record.name });
+  return { ok: true, tailoredId: id, name: record.name, trimmed: built.trimmed || 0 };
+}
+
+// A pasted cover letter: saved like one written on the letter page, so a fill attaches the PDF
+// or pastes the text into a cover letter box.
+async function jobLetterText(msg) {
+  const url = httpUrl(msg.url);
+  const posting = url && (await JobScriptStorage.getPosting(url));
+  if (!posting) return { ok: false, error: 'Open the job page again so JobScript can read it.' };
+  const text = String(msg.text || '').trim();
+  if (!text) return { ok: false, error: 'Paste the cover letter first.' };
+  let built;
+  try {
+    built = await buildFromText('letter', text, posting);
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+  if (!built.ok) return built;
+  const profile = await JobScriptStorage.getProfile();
+  const name = pdfFileName(profile, posting.company, 'Cover_Letter');
+  await JobScriptStorage.saveJob({ url: posting.url, company: posting.company, title: posting.title, site: posting.site, jobId: posting.jobId });
+  await JobScriptStorage.saveLetter(posting.url, {
+    text: built.text, tone: '', length: '', flags: 0, usedCompanyItems: [], pasted: true,
+    title: posting.title, company: posting.company,
+    pdf: { name, data: built.data, size: built.size },
+    createdAt: new Date().toISOString(),
+  });
+  return { ok: true, name };
+}
+
 // "Remove" on the notice after JobScript kept a resume you uploaded: forget it, and unlink it
 // from the job if it's still the one linked there.
 async function jobResumeRemove(msg) {
@@ -1051,9 +1148,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true, estimate: JobScriptAI.estimateWebSearchCost() });
     return false;
   }
-  if (['job-detected', 'job-analyze', 'job-save', 'job-open', 'job-apply', 'job-resume', 'job-resume-remove'].includes(msg.type)) {
+  if (['job-detected', 'job-analyze', 'job-save', 'job-open', 'job-apply', 'job-resume', 'job-resume-text', 'job-letter-text', 'job-resume-remove'].includes(msg.type)) {
     if (!isOwnContentScript(sender)) return false;
-    const handler = { 'job-detected': jobDetected, 'job-analyze': jobAnalyze, 'job-save': jobSave, 'job-open': jobOpen, 'job-apply': jobApply, 'job-resume': jobResume, 'job-resume-remove': jobResumeRemove }[msg.type];
+    const handler = {
+      'job-detected': jobDetected, 'job-analyze': jobAnalyze, 'job-save': jobSave, 'job-open': jobOpen, 'job-apply': jobApply,
+      'job-resume': jobResume, 'job-resume-text': jobResumeText, 'job-letter-text': jobLetterText, 'job-resume-remove': jobResumeRemove,
+    }[msg.type];
     handler(msg, sender).then(sendResponse, () => sendResponse({ ok: false, error: 'Something went wrong in JobScript.' }));
     return true;
   }
