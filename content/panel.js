@@ -666,6 +666,29 @@
         });
         return sec([heading, b.text ? el('p', { class: 'muted', text: b.text }) : null, zone, input, status]);
       }
+      case 'paste': {
+        // A box to paste text into; the button sends it to b.onSubmit(text). b.value refills the
+        // box after a re-render (the panel redraws itself on every change).
+        const box = el('textarea', { class: 'copybox', placeholder: b.placeholder || '', 'aria-label': b.title || 'Text to paste' });
+        box.value = b.value || '';
+        const btn = el('button', { type: 'button', class: 'btn', text: b.button || 'Use this', 'aria-label': b.ariaLabel || b.button || 'Use this text' });
+        const status = el('p', { class: 'muted', role: 'status', text: b.status || '' });
+        btn.addEventListener('click', trusted(async () => {
+          const text = box.value.trim();
+          if (!text) {
+            status.textContent = 'Paste the text first.';
+            return;
+          }
+          btn.disabled = true;
+          status.textContent = b.working || 'Working…';
+          try {
+            await b.onSubmit(text);
+          } finally {
+            if (btn.isConnected) btn.disabled = false;
+          }
+        }));
+        return sec([heading, b.text ? el('p', { class: 'muted', text: b.text }) : null, box, el('div', { class: 'btns' }, [btn]), status]);
+      }
       default:
         return null;
     }
