@@ -97,6 +97,28 @@ try {
   const firstName = await mock.locator('input[name*="first" i], input[id*="first" i]').first().inputValue().catch(() => '');
   check(firstName === PROFILE.firstName, 'fill puts the fake profile into the form', result && result.error ? result.error : `first name = "${firstName}"`);
 
+  // 3b. Pasted resume and cover letter text: PDFs built on the offscreen page, kept with the job,
+  // and the resume attached by the next fill.
+  const pasted = await sw.evaluate(async (url) => {
+    await JobScriptStorage.savePosting({ url, title: 'Test Engineer', company: 'JobScript Test', site: 'Greenhouse', description: 'A test posting for the paste flow. '.repeat(10), applyUrl: url });
+    const resume = await jobResumeText({ url, text: 'EXPERIENCE\nTest Engineer\tJan 2024 – Present\nExample Corp\n• Pasted this resume\n\nSKILLS\nPython, JavaScript' });
+    const letter = await jobLetterText({ url, text: 'Dear Hiring Team,\n\nI pasted this letter.\n\nSincerely,\nTesty McTestface' });
+    const docs = await JobScriptStorage.jobDocuments({ url });
+    const isPdf = (d) => !!(d && typeof d.data === 'string' && atob(d.data.slice(0, 8)).startsWith('%PDF'));
+    return { resume, letter, tailoredIsPdf: isPdf(docs.tailored), letterIsPdf: isPdf(docs.letter && docs.letter.pdf), letterText: (docs.letter && docs.letter.text) || '' };
+  }, MOCK_URL).catch((e) => ({ resume: { error: e.message }, letter: { error: e.message } }));
+  check(!!pasted.resume.ok && pasted.tailoredIsPdf, 'pasted resume text becomes a PDF kept with the job', pasted.resume.ok ? pasted.resume.name : pasted.resume.error);
+  check(!!pasted.letter.ok && pasted.letterIsPdf && /Sincerely,\nTesty McTestface$/.test(pasted.letterText), 'pasted cover letter becomes a PDF kept with the job', pasted.letter.ok ? pasted.letter.name : pasted.letter.error);
+  await sw.evaluate(async (url) => {
+    const [tab] = await chrome.tabs.query({ url: url + '*' });
+    return callWithInjection(tab.id, '__jobscriptFill');
+  }, MOCK_URL).catch(() => null);
+  const attached = await mock.evaluate(() => {
+    const f = document.getElementById('resume');
+    return f && f.files[0] ? f.files[0].name : '';
+  });
+  check(attached === 'Testy_McTestface_JobScriptTest.pdf', 'the next fill attaches the pasted resume PDF', `resume input = "${attached}"`);
+
   // 4. Handshake: the floating button on a job page and the search split view, and the job
   // page's cut-short description expanded
   for (const url of Object.keys(HANDSHAKE)) {
