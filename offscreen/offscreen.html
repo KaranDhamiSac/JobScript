@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Builds PDFs for the background script, which can't load pdf-lib (an ES module) itself. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'none'">
+  <title>JobScript</title>
+</head>
+<body>
+  <script src="../lib/resumeText.js"></script>
+  <script type="module" src="offscreen.js"></script>
+</body>
+</html>
