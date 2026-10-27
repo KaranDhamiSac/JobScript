@@ -249,6 +249,46 @@
       c.note = 'Couldn’t use that file: ' + res.error;
       return render();
     }
+    await resumeLinked(c, res);
+  }
+
+  // Pasted resume text (from Jobright, a Claude chat, anywhere): background.js makes the PDF,
+  // with your name and contact line from your profile, and keeps it with the job.
+  async function useResumeText(text) {
+    const c = current;
+    if (!c) return;
+    c.resumeText = text;
+    const res = await ask({ type: 'job-resume-text', url: c.posting.url, text });
+    if (current !== c) return;
+    if (!res.ok) {
+      c.note = 'Couldn’t make a PDF from that text: ' + res.error;
+      return render();
+    }
+    c.resumeText = '';
+    const trimmed = res.trimmed ? ` Dropped ${res.trimmed} bullet${res.trimmed === 1 ? '' : 's'} to fit one page.` : '';
+    await resumeLinked(c, res, trimmed);
+  }
+
+  async function useLetterText(text) {
+    const c = current;
+    if (!c) return;
+    c.letterText = text;
+    const res = await ask({ type: 'job-letter-text', url: c.posting.url, text });
+    if (current !== c) return;
+    if (!res.ok) {
+      c.note = 'Couldn’t make a PDF from that letter: ' + res.error;
+      return render();
+    }
+    c.letterText = '';
+    c.letterName = res.name;
+    if (!c.saved) c.saved = 'Saved';
+    c.note = `Saved ${res.name} as your cover letter for this job. JobScript attaches it (or pastes the text into a cover letter box) when it fills the application.`;
+    render();
+  }
+
+  // A resume is now linked to this job (dropped or pasted): say so, and fill the application if
+  // it's open on this page.
+  async function resumeLinked(c, res, extra = '') {
     c.resumeName = res.name;
     if (!c.saved) c.saved = 'Saved';
     const p = c.posting;
@@ -256,7 +296,7 @@
       const how = p.readOnly ? `Apply opens the employer’s application, and JobScript attaches it there.`
         : p.site === 'Handshake' ? 'Press Handshake’s Apply button, then Fill this page: JobScript uploads it to your Handshake documents and picks it.'
           : 'Open the application, then Fill this page and JobScript attaches it.';
-      c.note = `Saved ${res.name} as your resume for this job. ${how}`;
+      c.note = `Saved ${res.name} as your resume for this job.${extra} ${how}`;
       return render();
     }
     // The application is open: fill it now, with this resume (the fill finds it with the job).
@@ -265,7 +305,7 @@
     P.openTab('apply');
     const fill = await ask({ type: 'fill-self' });
     if (current !== c) return;
-    c.note = fill.ok ? `Saved ${res.name} as your resume for this job and filled the application. Check it before you submit.` : `Saved ${res.name}, but couldn’t fill: ${fill.error}`;
+    c.note = fill.ok ? `Saved ${res.name} as your resume for this job and filled the application.${extra} Check it before you submit.` : `Saved ${res.name}, but couldn’t fill: ${fill.error}`;
     if (!fill.ok) P.openTab('job');
     render();
   }
@@ -388,6 +428,28 @@
       prompt: name ? 'Drop a different resume PDF, or click to choose' : 'Drop your resume PDF here, or click to choose',
       accept: 'application/pdf,.pdf',
       onFile: useResume,
+    });
+    blocks.push({
+      kind: 'paste',
+      title: 'Or paste resume text',
+      text: 'From Jobright, a Claude chat or anywhere. JobScript makes a one-page PDF on this device, puts your name and contact details on top, and attaches it. No AI call.',
+      placeholder: 'Paste the whole resume here, headings and all…',
+      value: c.resumeText || '',
+      button: 'Make PDF and use it',
+      ariaLabel: 'Make a PDF from the pasted resume text and use it for this job',
+      working: 'Making the PDF…',
+      onSubmit: useResumeText,
+    });
+    blocks.push({
+      kind: 'paste',
+      title: c.letterName ? `Cover letter: ${c.letterName}` : 'Paste a cover letter',
+      text: c.letterName ? 'Paste another to replace it.' : 'Pasted the same way: JobScript adds your name, the date and a sign-off, and attaches the PDF or pastes the text wherever the application asks for a cover letter.',
+      placeholder: 'Paste the cover letter here…',
+      value: c.letterText || '',
+      button: 'Save cover letter',
+      ariaLabel: 'Make a PDF from the pasted cover letter and keep it for this job',
+      working: 'Making the PDF…',
+      onSubmit: useLetterText,
     });
     blocks.push({ kind: 'copy', title: `Job description (${p.description.length.toLocaleString()} characters)`, text: [p.title, p.company].filter(Boolean).join(' · ') + '\n\n' + p.description });
     const more = [];
